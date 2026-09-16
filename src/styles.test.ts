@@ -104,4 +104,12 @@ describe('mobile-frame layout', () => {
     expect(chevron).not.toContain('currentColor')
     expect(backChevron).not.toContain('currentColor')
   })
+
+  it('lets the 402px mobile frame fill narrow phone viewports without a generic page gutter', () => {
+    expect(styles).toContain('@media (max-width: 420px) {')
+    expect(styles).toContain('.page:has(.ledger-shell), .page:has(.auth-screen) { padding: 0; }')
+    expect(styles).toContain('.ledger-shell, .auth-screen { margin-left: auto; margin-right: auto; max-width: 402px; width: 100%; }')
+    expect(styles).toContain('html, body { max-width: 100%; overflow-x: hidden; }')
+    expect(styles).toContain('.bottom-nav, .entry-fixed-action, .category-fixed-actions, .detail-fixed-actions, .receipt-saved-actions { max-width: 402px; width: 100%; }')
+  })
 })
