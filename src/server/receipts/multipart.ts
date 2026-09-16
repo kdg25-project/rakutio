@@ -1,6 +1,6 @@
 import { OcrInputError } from '../../ocr/receipt'
 
-export const MAX_MULTIPART_BYTES = 8 * 1024 * 1024 + 64 * 1024
+export const MAX_MULTIPART_BYTES = 6 * 8 * 1024 * 1024 + 256 * 1024
 
 /**
  * Reads the upload body with a hard bound before using the platform multipart
@@ -14,7 +14,7 @@ export async function readBoundedMultipartFormData(request: Request): Promise<Fo
     throw new OcrInputError('画像ファイルを含むフォームを送信してください。')
   }
   if (Number.isFinite(contentLength) && contentLength > MAX_MULTIPART_BYTES) {
-    throw new OcrInputError('画像は 8 MB 以下にしてください。')
+    throw new OcrInputError('画像は合計 48 MB 以下にしてください。')
   }
 
   const reader = request.body.getReader()
@@ -26,7 +26,7 @@ export async function readBoundedMultipartFormData(request: Request): Promise<Fo
     total += value.byteLength
     if (total > MAX_MULTIPART_BYTES) {
       await reader.cancel()
-      throw new OcrInputError('画像は 8 MB 以下にしてください。')
+      throw new OcrInputError('画像は合計 48 MB 以下にしてください。')
     }
     chunks.push(value)
   }

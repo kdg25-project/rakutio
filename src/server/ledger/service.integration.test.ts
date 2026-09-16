@@ -45,7 +45,7 @@ function createLocalD1() {
 }
 
 async function applyMigrations(db: D1Database) {
-  for (const name of ['0000_ancient_spiral.sql', '0001_ledger_core.sql', '0002_assets.sql', '0003_planning.sql', '0004_asset_balance_bounds.sql', '0005_utility_item_kind.sql', '0006_asset_cascade_delete_guard.sql']) {
+  for (const name of ['0000_ancient_spiral.sql', '0001_ledger_core.sql', '0002_assets.sql', '0003_planning.sql', '0004_asset_balance_bounds.sql', '0005_utility_item_kind.sql', '0006_asset_cascade_delete_guard.sql', '0007_bank_account_details.sql']) {
     const migration = await readFile(resolve(process.cwd(), 'drizzle', name), 'utf8')
     for (const statement of migration.split('--> statement-breakpoint').map((value) => value.trim()).filter(Boolean)) await db.exec(statement)
   }

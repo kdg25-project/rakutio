@@ -38,7 +38,7 @@ describe('bounded OCR multipart parser', () => {
       'content-length': String(MAX_MULTIPART_BYTES + 1),
     })
 
-    await expect(readBoundedMultipartFormData(request)).rejects.toThrow(new OcrInputError('画像は 8 MB 以下にしてください。'))
+    await expect(readBoundedMultipartFormData(request)).rejects.toThrow(new OcrInputError('画像は合計 48 MB 以下にしてください。'))
   })
 
   it('reports malformed multipart input without leaking a parser error', async () => {

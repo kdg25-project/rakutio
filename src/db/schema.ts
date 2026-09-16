@@ -8,6 +8,8 @@ export const user = sqliteTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: integer('emailVerified', { mode: 'boolean' }).notNull(),
   image: text('image'),
+  theme: text('theme').notNull().default('sage'),
+  memo: text('memo').notNull().default(''),
   createdAt: integer('createdAt', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updatedAt', { mode: 'timestamp' }).notNull(),
 })
@@ -68,6 +70,26 @@ export const receipt = sqliteTable('receipt', {
   createdAt: integer('created_at').notNull(),
   analyzedAt: integer('analyzed_at'),
 }, (table) => [index('receipt_user_created_idx').on(table.userId, table.createdAt)])
+
+/**
+ * Ordered source images for a receipt. `receipt.objectKey` remains the first
+ * page's key so existing receipt links and transaction contracts stay valid.
+ */
+export const receiptPage = sqliteTable('receipt_page', {
+  receiptId: text('receipt_id').notNull().references(() => receipt.id, { onDelete: 'cascade' }),
+  pageIndex: integer('page_index').notNull(),
+  objectKey: text('object_key').notNull().unique(),
+  mimeType: text('mime_type').notNull(),
+  byteSize: integer('byte_size').notNull(),
+  analysisStatus: text('analysis_status', { enum: ['pending', 'analyzed', 'failed'] }).notNull().default('pending'),
+  analysisJson: text('analysis_json'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  analyzedAt: integer('analyzed_at'),
+}, (table) => [
+  uniqueIndex('receipt_page_receipt_index_unique').on(table.receiptId, table.pageIndex),
+  index('receipt_page_receipt_status_idx').on(table.receiptId, table.analysisStatus),
+])
 
 export const ledgerCategory = sqliteTable('ledger_category', {
   id: text('id').primaryKey(),
@@ -148,6 +170,8 @@ export const assetAccount = sqliteTable('asset_account', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   type: text('type', { enum: ['bank', 'cash', 'gift'] }).notNull(),
   name: text('name').notNull(),
+  bankKind: text('bank_kind', { enum: ['ordinary', 'checking', 'time'] }),
+  bankMemo: text('bank_memo'),
   balanceAmount: integer('balance_amount').notNull().default(0),
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at').notNull(),

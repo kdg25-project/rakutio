@@ -79,7 +79,7 @@ describe('saved receipt OCR retry', () => {
     const local = retryDatabase(); const bucket = retryBucket()
     const extract = vi.fn(async () => { throw new Error('provider unavailable') })
 
-    await expect(retryReceiptAnalysis({ db: local.db, bucket, userId: 'owner-1', receiptId: 'receipt-1', extract })).rejects.toThrow('provider unavailable')
+    await expect(retryReceiptAnalysis({ db: local.db, bucket, userId: 'owner-1', receiptId: 'receipt-1', extract })).resolves.toMatchObject({ receipt: null, pages: [{ pageIndex: 0, status: 'failed' }] })
     expect(extract).toHaveBeenCalledOnce()
     expect(bucket.get).toHaveBeenCalledOnce()
     expect(local.state.status).toBe('failed')

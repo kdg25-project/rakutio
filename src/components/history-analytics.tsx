@@ -15,6 +15,11 @@ import type {
   LedgerTransactionType,
 } from "../server/ledger/types";
 import type { AssetAccount, AssetSummary } from "../server/assets/types";
+import {
+  readViewCache,
+  viewCacheKey,
+  writeViewCache,
+} from "../lib/view-cache";
 
 import "./history-analytics.css";
 
@@ -108,6 +113,18 @@ type MonthlyTarget = {
   incomeProgress: number | null;
 };
 type MonthlyTargetResponse = { targets: MonthlyTarget[] };
+type HistoryCache = {
+  transactions: LedgerTransaction[];
+  nextCursor: string | null;
+  summary?: LedgerSummary;
+};
+type AnalyticsCache = {
+  analytics?: AnalyticsResponse;
+  trendAnalytics?: AnalyticsResponse;
+  assetHistory?: AssetHistoryResponse;
+  assetAccounts?: AssetAccount[];
+  assetActiveTotal?: number;
+};
 
 const emptyFilter: HistoryFilter = {
   type: "",
@@ -246,12 +263,24 @@ export function nextTabIndex(current: number, key: string, count: number) {
   return current;
 }
 
-function Loading({ label = "読み込み中…" }: { label?: string }) {
+/** Preserve each screen's Figma geometry while its first network request runs. */
+function HistorySkeleton() {
   return (
-    <p className="ha-loading" aria-live="polite">
-      <i />
-      {label}
-    </p>
+    <div className="ha-history-skeleton" aria-busy="true" aria-label="履歴を読み込み中">
+      <i /><i /><i />
+    </div>
+  );
+}
+
+function HistoryRefreshSkeleton() {
+  return <div className="ha-history-refresh-skeleton" aria-busy="true"><i /></div>;
+}
+
+function AnalyticsSkeleton({ label = "分析データを読み込み中" }: { label?: string }) {
+  return (
+    <div className="ha-analytics-skeleton" aria-busy="true" aria-label={label}>
+      <i /><i /><i />
+    </div>
   );
 }
 
@@ -295,6 +324,17 @@ function TransactionList({
     () => new Map(categories.map((category) => [category.id, category])),
     [categories],
   );
+  const dateTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const transaction of transactions) {
+      const amount = matchingAmount?.(transaction) ?? transaction.cashPaidAmount;
+      totals.set(
+        transaction.occurredAt,
+        (totals.get(transaction.occurredAt) ?? 0) + amount,
+      );
+    }
+    return totals;
+  }, [matchingAmount, transactions]);
   let lastDate = "";
   return (
     <div className="ha-transaction-list">
@@ -308,13 +348,17 @@ function TransactionList({
             ? ((lastDate = transaction.occurredAt),
               (
                 <p className="ha-date-heading" key={`${transaction.id}-date`}>
-                  {dateLabel(transaction.occurredAt)}
+                  <span>{dateLabel(transaction.occurredAt)}</span>
+                  <b>{yen(dateTotals.get(transaction.occurredAt) ?? 0)}</b>
                 </p>
               ))
             : null;
         const matched = matchingAmount?.(transaction);
         return (
-          <div key={transaction.id}>
+          <div
+            className={heading ? "ha-transaction-group" : "ha-transaction-entry"}
+            key={transaction.id}
+          >
             {heading}
             <button
               type="button"
@@ -345,9 +389,11 @@ function TransactionList({
                   : yen(matched)}
                 {matched != null && <small>該当額</small>}
               </strong>
-              <span className="ha-chevron" aria-hidden="true">
-                ›
-              </span>
+              <img
+                className="ha-row-chevron"
+                src="/icons/chevron-right.svg"
+                alt=""
+              />
             </button>
           </div>
         );
@@ -362,24 +408,38 @@ export function HistoryScreen({
   categories,
   onSelect,
   onError,
+  cacheScope,
 }: {
   month: string;
   setMonth: (value: string) => void;
   categories: LedgerCategory[];
   onSelect: (transaction: LedgerTransaction) => void;
   onError?: (message: string) => void;
+  /** Better Auth user id; without it this screen intentionally does not cache. */
+  cacheScope?: string;
 }) {
+  const initialCache = readViewCache<HistoryCache>(
+    viewCacheKey(cacheScope, "history", `${month}:${JSON.stringify(emptyFilter)}`),
+  );
   const [draft, setDraft] = useState<HistoryFilter>(emptyFilter);
   const [filter, setFilter] = useState<HistoryFilter>(emptyFilter);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [transactions, setTransactions] = useState<LedgerTransaction[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [summary, setSummary] = useState<LedgerSummary>();
-  const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<LedgerTransaction[]>(
+    () => initialCache?.transactions ?? [],
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(
+    () => initialCache?.nextCursor ?? null,
+  );
+  const [summary, setSummary] = useState<LedgerSummary | undefined>(() => initialCache?.summary);
+  const [loading, setLoading] = useState(() => !initialCache);
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState<Notice>();
   const requestId = useRef(0);
   const activeController = useRef<AbortController | undefined>(undefined);
+  const cacheKey = useMemo(
+    () => viewCacheKey(cacheScope, "history", `${month}:${JSON.stringify(filter)}`),
+    [cacheScope, filter, month],
+  );
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -387,8 +447,14 @@ export function HistoryScreen({
       activeController.current?.abort();
       const controller = new AbortController();
       activeController.current = controller;
+      const cached = cursor ? undefined : readViewCache<HistoryCache>(cacheKey);
       if (cursor) setLoadingMore(true);
-      else setLoading(true);
+      else if (cached) {
+        setTransactions(cached.transactions);
+        setNextCursor(cached.nextCursor);
+        setSummary(cached.summary);
+        setLoading(false);
+      } else setLoading(true);
       setNotice(undefined);
       try {
         const [transactionResponse, summaryResponse] = await Promise.all([
@@ -411,6 +477,13 @@ export function HistoryScreen({
         );
         setNextCursor(transactionResponse.nextCursor);
         if (summaryResponse) setSummary(summaryResponse.summary);
+        if (!cursor) {
+          writeViewCache(cacheKey, {
+            transactions: transactionResponse.transactions,
+            nextCursor: transactionResponse.nextCursor,
+            summary: summaryResponse?.summary,
+          });
+        }
       } catch (cause) {
         if (controller.signal.aborted || currentId !== requestId.current)
           return;
@@ -430,7 +503,7 @@ export function HistoryScreen({
         }
       }
     },
-    [filter, month, onError],
+    [cacheKey, filter, month, onError],
   );
 
   useEffect(() => {
@@ -453,49 +526,52 @@ export function HistoryScreen({
     <section className="ha-screen" aria-label="履歴">
       <header className="ha-title-row">
         <h1>履歴</h1>
+      </header>
+      <div className="ha-history-tab-row">
+        <div className="ha-history-tabs" role="group" aria-label="取引種別">
+          <button
+            type="button"
+            className={!filter.type ? "active" : ""}
+            onClick={() => {
+              const next = { ...draft, type: "" as const };
+              setDraft(next);
+              setFilter(next);
+            }}
+          >
+            すべて
+          </button>
+          <button
+            type="button"
+            className={filter.type === "income" ? "active" : ""}
+            onClick={() => {
+              const next = { ...draft, type: "income" as const };
+              setDraft(next);
+              setFilter(next);
+            }}
+          >
+            収入
+          </button>
+          <button
+            type="button"
+            className={filter.type === "expense" ? "active" : ""}
+            onClick={() => {
+              const next = { ...draft, type: "expense" as const };
+              setDraft(next);
+              setFilter(next);
+            }}
+          >
+            支出
+          </button>
+        </div>
         <button
           type="button"
           className="ha-filter-button"
+          aria-label="絞り込み"
           aria-expanded={filtersOpen}
           aria-controls="history-filters"
           onClick={() => setFiltersOpen((open) => !open)}
         >
-          絞り込み
-        </button>
-      </header>
-      <div className="ha-history-tabs" role="group" aria-label="取引種別">
-        <button
-          type="button"
-          className={!filter.type ? "active" : ""}
-          onClick={() => {
-            const next = { ...draft, type: "" as const };
-            setDraft(next);
-            setFilter(next);
-          }}
-        >
-          すべて
-        </button>
-        <button
-          type="button"
-          className={filter.type === "income" ? "active" : ""}
-          onClick={() => {
-            const next = { ...draft, type: "income" as const };
-            setDraft(next);
-            setFilter(next);
-          }}
-        >
-          収入
-        </button>
-        <button
-          type="button"
-          className={filter.type === "expense" ? "active" : ""}
-          onClick={() => {
-            const next = { ...draft, type: "expense" as const };
-            setDraft(next);
-            setFilter(next);
-          }}
-        >
-          支出
+          <img src="/icons/filter.svg" alt="" />
         </button>
       </div>
       <form
@@ -615,7 +691,11 @@ export function HistoryScreen({
           aria-label="前の月"
           onClick={() => setMonth(shiftMonth(month, -1))}
         >
-          ‹
+          <img
+            className="ha-month-chevron ha-chevron-previous"
+            src="/icons/chevron-right.svg"
+            alt=""
+          />
         </button>
         <strong>{monthLabel(month)}</strong>
         <button
@@ -623,7 +703,7 @@ export function HistoryScreen({
           aria-label="次の月"
           onClick={() => setMonth(shiftMonth(month, 1))}
         >
-          ›
+          <img className="ha-month-chevron" src="/icons/chevron-right.svg" alt="" />
         </button>
       </div>
       <div className="ha-summary-strip">
@@ -643,7 +723,7 @@ export function HistoryScreen({
       </div>
       <ErrorNotice notice={notice} />
       {loading && !transactions.length ? (
-        <Loading label="履歴を読み込んでいます…" />
+        <HistorySkeleton />
       ) : transactions.length ? (
         <>
           <TransactionList
@@ -652,7 +732,7 @@ export function HistoryScreen({
             onSelect={onSelect}
             grouped
           />
-          {loading && <Loading />}
+          {loading && <HistoryRefreshSkeleton />}
           {nextCursor && (
             <button
               type="button"
@@ -776,7 +856,11 @@ function AnalysisPeriodControls({
                 setMonth(shiftMonth(month, period === "year" ? -12 : -1))
               }
             >
-              ‹
+              <img
+                className="ha-month-chevron ha-chevron-previous"
+                src="/icons/chevron-right.svg"
+                alt=""
+              />
             </button>
             <strong>
               {period === "year" ? `${month.slice(0, 4)}年` : monthLabel(month)}
@@ -788,7 +872,7 @@ function AnalysisPeriodControls({
                 setMonth(shiftMonth(month, period === "year" ? 12 : 1))
               }
             >
-              ›
+              <img className="ha-month-chevron" src="/icons/chevron-right.svg" alt="" />
             </button>
           </div>
         )}
@@ -803,21 +887,35 @@ export function AnalyticsScreen({
   summary: _summary,
   categories,
   onSelect,
+  cacheScope,
 }: {
   month: string;
   setMonth: (value: string) => void;
   summary?: LedgerSummary;
   categories: LedgerCategory[];
   onSelect?: (transaction: LedgerTransaction) => void;
+  /** Better Auth user id; without it this screen intentionally does not cache. */
+  cacheScope?: string;
 }) {
+  const initialRange = periodRange("month", month, `${month}-01`, lastDateOfMonth(month));
+  const initialTrendRange = mainAnalyticsTrendRange(month);
+  const initialCache = readViewCache<AnalyticsCache>(
+    viewCacheKey(
+      cacheScope,
+      "analytics",
+      `cashflow:month:${initialRange.from}:${initialRange.to}:${initialTrendRange.from}:${initialTrendRange.to}`,
+    ),
+  );
   const [view, setView] = useState<AnalyticsView>("cashflow");
   const [period, setPeriod] = useState<Period>("month");
   const [customFrom, setCustomFrom] = useState(`${month}-01`);
   const [customTo, setCustomTo] = useState(lastDateOfMonth(month));
-  const [analytics, setAnalytics] = useState<AnalyticsResponse>();
-  const [assetHistory, setAssetHistory] = useState<AssetHistoryResponse>();
-  const [assetAccounts, setAssetAccounts] = useState<AssetAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | undefined>(() => initialCache?.analytics);
+  const [trendAnalytics, setTrendAnalytics] = useState<AnalyticsResponse | undefined>(() => initialCache?.trendAnalytics);
+  const [assetHistory, setAssetHistory] = useState<AssetHistoryResponse | undefined>(() => initialCache?.assetHistory);
+  const [assetAccounts, setAssetAccounts] = useState<AssetAccount[]>(() => initialCache?.assetAccounts ?? []);
+  const [assetActiveTotal, setAssetActiveTotal] = useState<number | undefined>(() => initialCache?.assetActiveTotal);
+  const [loading, setLoading] = useState(() => !initialCache);
   const [notice, setNotice] = useState<Notice>();
   const [categoryPicker, setCategoryPicker] = useState(false);
   const [detail, setDetail] = useState<{
@@ -844,6 +942,7 @@ export function AnalyticsScreen({
     () => periodRange(period, month, customFrom, customTo),
     [customFrom, customTo, month, period],
   );
+  const trendRange = useMemo(() => mainAnalyticsTrendRange(month), [month]);
   const analyticsUrl = useCallback(
     (nextRange: Pick<AnalyticsRange, "from" | "to">, categoryId?: string) => {
       const query = new URLSearchParams({
@@ -855,16 +954,36 @@ export function AnalyticsScreen({
     },
     [],
   );
+  const cacheKey = useMemo(
+    () =>
+      viewCacheKey(
+        cacheScope,
+        "analytics",
+        view === "assets"
+          ? `${view}:${month}`
+          : `${view}:${period}:${range.from}:${range.to}:${trendRange.from}:${trendRange.to}`,
+      ),
+    [cacheScope, month, period, range.from, range.to, trendRange.from, trendRange.to, view],
+  );
 
   const load = useCallback(async () => {
     const current = ++mainRequest.current;
-    setLoading(true);
+    const cached = readViewCache<AnalyticsCache>(cacheKey);
+    if (cached) {
+      setAnalytics(cached.analytics);
+      setTrendAnalytics(cached.trendAnalytics);
+      setAssetHistory(cached.assetHistory);
+      setAssetAccounts(cached.assetAccounts ?? []);
+      setAssetActiveTotal(cached.assetActiveTotal);
+      setLoading(false);
+    } else setLoading(true);
     setNotice(undefined);
     try {
       if (view === "assets") {
+        const assetRange = sixMonthRange(lastDateOfMonth(month));
         const [response, accountResponse] = await Promise.all([
           api<AssetHistoryResponse>(
-            `/api/assets/history?${new URLSearchParams({ from: range.from, to: range.to })}`,
+            `/api/assets/history?${new URLSearchParams({ from: assetRange.from, to: assetRange.to, activeOnly: "true" })}`,
           ),
           api<AssetSummaryResponse>(
             "/api/assets/accounts/?includeArchived=false",
@@ -873,10 +992,24 @@ export function AnalyticsScreen({
         if (current !== mainRequest.current) return;
         setAssetHistory(response);
         setAssetAccounts(accountResponse.assets.accounts);
+        setAssetActiveTotal(accountResponse.assets.activeTotalAmount);
+        writeViewCache(cacheKey, {
+          assetHistory: response,
+          assetAccounts: accountResponse.assets.accounts,
+          assetActiveTotal: accountResponse.assets.activeTotalAmount,
+        });
       } else {
-        const response = await api<AnalyticsApiResponse>(analyticsUrl(range));
+        const [response, trendResponse] = await Promise.all([
+          api<AnalyticsApiResponse>(analyticsUrl(range)),
+          api<AnalyticsApiResponse>(analyticsUrl(trendRange)),
+        ]);
         if (current !== mainRequest.current) return;
         setAnalytics(response.analytics);
+        setTrendAnalytics(trendResponse.analytics);
+        writeViewCache(cacheKey, {
+          analytics: response.analytics,
+          trendAnalytics: trendResponse.analytics,
+        });
       }
     } catch (cause) {
       if (current !== mainRequest.current) return;
@@ -893,7 +1026,7 @@ export function AnalyticsScreen({
     } finally {
       if (current === mainRequest.current) setLoading(false);
     }
-  }, [analyticsUrl, range, view]);
+  }, [analyticsUrl, cacheKey, range, trendRange, view]);
 
   useEffect(() => {
     void load();
@@ -916,7 +1049,7 @@ export function AnalyticsScreen({
     () => gradientStops(categoriesWithSpend, categoryTotal),
     [categoriesWithSpend, categoryTotal],
   );
-  const monthPoints = analytics?.trend.monthly ?? [];
+  const monthPoints = trendAnalytics?.trend.monthly ?? [];
   const chartMaximum = Math.max(
     1,
     ...monthPoints.flatMap((point) => [
@@ -924,7 +1057,19 @@ export function AnalyticsScreen({
       point.expenseAmount ?? 0,
     ]),
   );
-  const latestAsset = assetHistory?.closingBalanceAmount;
+  const monthlyAssetHistory = useMemo(
+    () =>
+      assetHistory
+        ? monthlyAssetPoints(
+            month,
+            assetHistory.openingBalanceAmount,
+            assetHistory.history,
+          )
+        : [],
+    [assetHistory, month],
+  );
+  const assetPreviousBalance = monthlyAssetHistory.at(-2)?.balanceAmount ?? 0;
+  const assetCurrentBalance = assetActiveTotal ?? monthlyAssetHistory.at(-1)?.balanceAmount;
 
   const openDetail = (
     kind: Drilldown,
@@ -1106,30 +1251,32 @@ export function AnalyticsScreen({
           総資産
         </button>
       </div>
-      <AnalysisPeriodControls
-        idPrefix="analysis"
-        period={period}
-        setPeriod={setPeriod}
-        month={month}
-        setMonth={setMonth}
-        customFrom={customFrom}
-        setCustomFrom={setCustomFrom}
-        customTo={customTo}
-        setCustomTo={setCustomTo}
-      />
+      {view === "assets" ? null : (
+        <AnalysisPeriodControls
+          idPrefix="analysis"
+          period={period}
+          setPeriod={setPeriod}
+          month={month}
+          setMonth={setMonth}
+          customFrom={customFrom}
+          setCustomFrom={setCustomFrom}
+          customTo={customTo}
+          setCustomTo={setCustomTo}
+        />
+      )}
       <ErrorNotice notice={notice} />
       <div
         id="analysis-view-panel"
         role="tabpanel"
         aria-labelledby={`analysis-view-${view}`}
       >
-        {loading ? (
-          <Loading label="分析データを読み込んでいます…" />
+        {loading && !analytics && !assetHistory ? (
+          <AnalyticsSkeleton />
         ) : view === "assets" ? (
           <AssetAnalysis
-            history={assetHistory?.history ?? []}
-            latest={latestAsset}
-            asOf={range.to}
+            history={monthlyAssetHistory}
+            latest={assetCurrentBalance}
+            previous={assetPreviousBalance}
             accounts={assetAccounts}
           />
         ) : analytics ? (
@@ -1139,59 +1286,42 @@ export function AnalyticsScreen({
                 <span className="income">↑</span>
                 <small>収入</small>
                 <b>{yen(analytics.totals.incomeAmount)}</b>
-                <i>›</i>
+                <img
+                  className="ha-summary-chevron"
+                  src="/icons/chevron-right.svg"
+                  alt=""
+                />
               </button>
               <button type="button" onClick={() => openDetail("expense")}>
                 <span className="expense">↓</span>
                 <small>支出</small>
                 <b>{yen(analytics.totals.expenseAmount)}</b>
-                <i>›</i>
+                <img
+                  className="ha-summary-chevron"
+                  src="/icons/chevron-right.svg"
+                  alt=""
+                />
               </button>
             </div>
-            <p className="ha-comparison">
-              前期間比:{" "}
-              <b
-                className={
-                  analytics.totals.netAmount -
-                    analytics.previousTotals.netAmount <
-                  0
-                    ? "expense"
-                    : "income"
-                }
-              >
-                {analytics.totals.netAmount -
-                  analytics.previousTotals.netAmount >=
-                0
-                  ? "+"
-                  : "−"}{" "}
-                {yen(
-                  Math.abs(
-                    analytics.totals.netAmount -
-                      analytics.previousTotals.netAmount,
-                  ),
-                )}
-              </b>
-            </p>
             <section className="ha-card">
               <div className="ha-card-head">
                 <h2>収支の推移</h2>
-                <span>
-                  {period === "month"
-                    ? "この月"
-                    : `${range.from} 〜 ${range.to}`}
+                <span className="ha-card-more" aria-hidden="true">
+                  もっと見る <img src="/icons/chevron-right.svg" alt="" />
                 </span>
               </div>
               <IncomeExpenseChart points={monthPoints} maximum={chartMaximum} />
             </section>
-            <section className="ha-card">
+            <section className="ha-category-section">
               <div className="ha-card-head">
                 <h2>カテゴリ別の支出</h2>
                 <button
                   type="button"
+                  className="ha-card-more"
                   onClick={() => setCategoryPicker(true)}
                   disabled={!categoriesWithSpend.length}
                 >
-                  もっと見る ›
+                  もっと見る <img src="/icons/chevron-right.svg" alt="" />
                 </button>
               </div>
               {categoriesWithSpend.length ? (
@@ -1214,27 +1344,6 @@ export function AnalyticsScreen({
               ) : (
                 <Empty text="カテゴリ別の支出はまだありません。" />
               )}
-            </section>
-            <section className="ha-split-analysis">
-              <button type="button" onClick={() => openDetail("utility")}>
-                <small>光熱費</small>
-                <b>{yen(sumUtility(analytics.utility.totals))}</b>
-                <span>内訳を見る ›</span>
-              </button>
-              <button type="button" onClick={() => openDetail("fixed")}>
-                <small>固定費</small>
-                <b>{yen(analytics.fixed.paidAmount)}</b>
-                <span>内訳を見る ›</span>
-              </button>
-            </section>
-            <section className="ha-card">
-              <div className="ha-card-head">
-                <h2>日別の支出</h2>
-                <span>
-                  {range.from} 〜 {range.to}
-                </span>
-              </div>
-              <DailyChart points={analytics.trend.daily} />
             </section>
           </>
         ) : (
@@ -1259,67 +1368,84 @@ function IncomeExpenseChart({
   points: AnalyticsPoint[];
   maximum: number;
 }) {
+  const labels = monthlyTrendLabels(points);
+  const axis = [maximum, maximum * 2 / 3, maximum / 3, 0].map((value) =>
+    new Intl.NumberFormat("ja-JP", {
+      maximumFractionDigits: 0,
+      notation: value >= 1_000_000 ? "compact" : "standard",
+    }).format(value),
+  );
   return points.length ? (
-    <div className="ha-income-chart" aria-label="収支の推移">
-      <div className="ha-chart-lines">
-        <i />
-        <i />
-        <i />
-      </div>
-      <svg
-        className="ha-chart-net-line"
-        viewBox="0 0 300 104"
-        aria-hidden="true"
-      >
-        <polyline
-          points={linePoints(
-            points.map(
-              (point) =>
-                point.netAmount ??
-                (point.incomeAmount ?? 0) - (point.expenseAmount ?? 0),
-            ),
-            300,
-            86,
-            9,
-          )}
-        />
-        {lineMarkers(
-          points.map(
-            (point) =>
-              point.netAmount ??
-              (point.incomeAmount ?? 0) - (point.expenseAmount ?? 0),
-          ),
-          300,
-          86,
-          9,
-        ).map((point) => (
-          <circle key={point.key} cx={point.x} cy={point.y} r="3" />
-        ))}
-      </svg>
-      {points.map((point) => (
-        <div className="ha-month-bars" key={point.month ?? point.date}>
-          <div>
-            <i
-              className="income"
-              style={{
-                height: `${barHeight(point.incomeAmount ?? 0, maximum)}%`,
-              }}
-            />
-            <i
-              className="expense"
-              style={{
-                height: `${barHeight(point.expenseAmount ?? 0, maximum)}%`,
-              }}
-            />
-          </div>
-          <span>
-            {point.month
-              ? `${Number(point.month.slice(5))}月`
-              : point.date?.slice(5)}
-          </span>
+    <>
+      <p className="ha-chart-legend" aria-label="グラフの凡例">
+        <span><i className="income" />収入</span>
+        <span><i className="expense" />支出</span>
+        <span><i className="net" />収支</span>
+      </p>
+      <div className="ha-income-chart" aria-label="収支の推移">
+        <div className="ha-chart-axis" aria-hidden="true">
+          {axis.map((label, index) => <span key={`${label}-${index}`}>{label}</span>)}
         </div>
-      ))}
-    </div>
+        <div className="ha-chart-plot">
+          <div className="ha-chart-lines">
+            <i />
+            <i />
+            <i />
+          </div>
+          <svg
+            className="ha-chart-net-line"
+            viewBox="0 0 300 104"
+            aria-hidden="true"
+          >
+            <polyline
+              points={linePoints(
+                points.map(
+                  (point) =>
+                    point.netAmount ??
+                    (point.incomeAmount ?? 0) - (point.expenseAmount ?? 0),
+                ),
+                300,
+                86,
+                9,
+              )}
+            />
+            {lineMarkers(
+              points.map(
+                (point) =>
+                  point.netAmount ??
+                  (point.incomeAmount ?? 0) - (point.expenseAmount ?? 0),
+              ),
+              300,
+              86,
+              9,
+            ).map((point) => (
+              <circle key={point.key} cx={point.x} cy={point.y} r="3" />
+            ))}
+          </svg>
+          <div className="ha-month-series">
+            {points.map((point, index) => (
+              <div className="ha-month-bars" key={point.month ?? point.date}>
+                <div>
+                  <i
+                    className="income"
+                    style={{
+                      height: `${barHeight(point.incomeAmount ?? 0, maximum)}%`,
+                    }}
+                  />
+                  <i
+                    className="expense"
+                    style={{
+                      height: `${barHeight(point.expenseAmount ?? 0, maximum)}%`,
+                    }}
+                  />
+                </div>
+                <span>{labels[index]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
   ) : (
     <Empty text="表示できる収支データがありません。" />
   );
@@ -1344,7 +1470,6 @@ function CategoryRows({
             <small>
               {Math.round((category.paidAmount / Math.max(1, total)) * 100)}%
             </small>
-            <strong>{yen(category.paidAmount)}</strong>
           </button>
         </li>
       ))}
@@ -1379,27 +1504,24 @@ function DailyChart({ points }: { points: AnalyticsPoint[] }) {
 function AssetAnalysis({
   history,
   latest,
-  asOf,
+  previous,
   accounts,
 }: {
   history: AssetHistoryPoint[];
   latest?: number;
-  asOf: string;
+  previous: number;
   accounts: AssetAccount[];
 }) {
+  const comparison = monthComparison(latest, previous);
   return (
     <>
       <section className="ha-asset-total">
-        <small>期間末の総資産</small>
         <b>{latest == null ? "—" : yen(latest)}</b>
-        <span>
-          {latest == null ? "この期間の残高記録はありません" : `${asOf} 時点`}
-        </span>
+        {latest == null ? <span>現在の残高を読み込めません</span> : <span>前月比 {comparison.label}</span>}
       </section>
       <section className="ha-card">
         <div className="ha-card-head">
           <h2>資産の推移</h2>
-          <span>実際の残高履歴</span>
         </div>
         {history.length ? (
           <LineHistoryChart points={history} />
@@ -1410,14 +1532,9 @@ function AssetAnalysis({
       <section className="ha-card ha-asset-breakdown">
         <div className="ha-card-head">
           <h2>資産の内訳</h2>
-          <span>現在の残高</span>
         </div>
         {accounts.length ? (
           <>
-            <p className="ha-asset-current-note">
-              口座ごとの期間末残高は API
-              で取得していないため、ここでは現在の残高を表示します。
-            </p>
             <ul>
               {accounts.map((account) => (
                 <li key={account.id}>
@@ -1442,8 +1559,11 @@ function AssetAnalysis({
 function LineHistoryChart({ points }: { points: AssetHistoryPoint[] }) {
   const values = points.map((point) => point.balanceAmount);
   const markers = lineMarkers(values, 300, 102, 10);
+  const largest = Math.max(0, ...values);
+  const tickLabels = [largest, Math.round(largest * 2 / 3), Math.round(largest / 3), 0].map((value) => new Intl.NumberFormat("ja-JP", { notation: "compact", maximumFractionDigits: 1 }).format(value));
   return (
     <div className="ha-line-history" aria-label="資産の推移">
+      <div className="ha-line-history-axis" aria-hidden="true">{tickLabels.map((label, index) => <span key={`${label}-${index}`}>{label}</span>)}</div>
       <svg viewBox="0 0 300 120" preserveAspectRatio="none">
         <defs>
           <linearGradient id="ha-asset-fill" x1="0" x2="0" y1="0" y2="1">
@@ -1455,6 +1575,7 @@ function LineHistoryChart({ points }: { points: AssetHistoryPoint[] }) {
           points={`${linePoints(values, 300, 102, 10)} 300,112 0,112`}
           fill="url(#ha-asset-fill)"
         />
+        {[10, 44, 78, 112].map((position) => <line key={position} x1="0" x2="300" y1={position} y2={position} />)}
         <polyline points={linePoints(values, 300, 102, 10)} />
         {markers.map((point) => (
           <circle key={point.key} cx={point.x} cy={point.y} r="3" />
@@ -1462,7 +1583,7 @@ function LineHistoryChart({ points }: { points: AssetHistoryPoint[] }) {
       </svg>
       <div>
         {points.map((point) => (
-          <span key={point.date}>{point.date.slice(5)}</span>
+          <span key={point.date}>{Number(point.date.slice(5, 7))}月</span>
         ))}
       </div>
     </div>
@@ -1771,11 +1892,16 @@ function AnalyticsDetail({
     kind === "income" ? target?.incomeProgress : target?.expenseProgress;
   const showsTarget =
     period === "month" && (kind === "income" || kind === "expense");
+  const comparison = monthComparison(amount, previous);
   return (
     <section className="ha-screen ha-detail-page" aria-label={title}>
       <header className="ha-detail-page-header">
         <button type="button" onClick={onClose} aria-label="分析に戻る">
-          ‹
+          <img
+            className="ha-back-chevron ha-chevron-previous"
+            src="/icons/chevron-right.svg"
+            alt=""
+          />
         </button>
         <h1>{headline}</h1>
         <span aria-hidden="true" />
@@ -1793,12 +1919,8 @@ function AnalyticsDetail({
       />
       <ErrorNotice notice={notice} />
       {loading ? (
-        <Loading
-          label={
-            progress
-              ? `${progress} 件の明細を確認しています…`
-              : "明細を読み込んでいます…"
-          }
+        <AnalyticsSkeleton
+          label={progress ? `${progress} 件の明細を確認中` : "明細を読み込み中"}
         />
       ) : response ? (
         <>
@@ -1808,10 +1930,7 @@ function AnalyticsDetail({
               {kind === "income" ? "収入" : "実支払額"}
             </small>
             <b>{yen(amount)}</b>
-            <span>
-              前期間 {yen(previous)} / 差額 {amount - previous >= 0 ? "+" : "−"}{" "}
-              {yen(Math.abs(amount - previous))}
-            </span>
+            <span>{period === "month" ? `前月比 ${comparison.label}` : `前期間比 ${comparison.label}`}</span>
           </section>
           {showsTarget && (
             <TargetProgress
@@ -1840,7 +1959,14 @@ function AnalyticsDetail({
             </section>
           )}
           {kind === "utility" && (
-            <UtilityBreakdown totals={response.utility.totals} />
+            <>
+              <div className="ha-detail-category-select" aria-label="選択中のカテゴリ">
+                <span className="ha-category-icon" aria-hidden="true"><img src="/icons/category-utility.svg" alt="" /></span>
+                <b>光熱費</b>
+                <ChevronIcon />
+              </div>
+              <UtilityBreakdown totals={response.utility.totals} previousTotals={previousResponse?.utility.totals} />
+            </>
           )}
           {kind === "category" && (
             <section className="ha-card">
@@ -1928,12 +2054,13 @@ function TargetProgress({
 
 function UtilityBreakdown({
   totals,
+  previousTotals,
 }: {
   totals: AnalyticsResponse["utility"]["totals"];
+  previousTotals?: AnalyticsResponse["utility"]["totals"];
 }) {
   return (
     <section className="ha-utility-breakdown">
-      <h3>内訳</h3>
       {(
         [
           ["電気", totals.electricity],
@@ -1941,12 +2068,16 @@ function UtilityBreakdown({
           ["水道", totals.water],
           ["その他", totals.other],
         ] as const
-      ).map(([name, amount]) => (
+      ).map(([name, amount]) => {
+        const previous = previousTotals ? previousTotals[name === '電気' ? 'electricity' : name === 'ガス' ? 'gas' : name === '水道' ? 'water' : 'other'] : 0;
+        return (
         <div key={name}>
-          <span>{name}</span>
-          <b>{yen(amount)}</b>
+          <span><b>{name}</b><small>前月比 {monthComparison(amount, previous).label}</small></span>
+          <strong>{yen(amount)}</strong>
+          <ChevronIcon />
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -1989,6 +2120,49 @@ function periodRange(
 function sixMonthRange(end: string) {
   const endMonth = end.slice(0, 7);
   return { from: `${shiftMonth(endMonth, -5)}-01`, to: end };
+}
+
+/** Main analysis keeps the selected period for totals while always charting six monthly points. */
+export function mainAnalyticsTrendRange(month: string) {
+  return sixMonthRange(lastDateOfMonth(month));
+}
+
+export function monthlyTrendLabels(points: AnalyticsPoint[]) {
+  return points.map((point) => point.month ? `${Number(point.month.slice(5))}月` : point.date?.slice(5) ?? '');
+}
+
+/**
+ * Monthly closing balances come from the history API's opening boundary and
+ * actual movements. A quiet month carries the previous real balance forward.
+ */
+export function monthlyAssetPoints(
+  endMonth: string,
+  openingBalanceAmount: number,
+  history: AssetHistoryPoint[],
+) {
+  const months = Array.from({ length: 6 }, (_, index) =>
+    shiftMonth(endMonth, index - 5),
+  );
+  let balance = openingBalanceAmount;
+  return months.map((month) => {
+    const movements = history.filter((point) => point.date.startsWith(month));
+    if (movements.length) balance = movements[movements.length - 1]!.balanceAmount;
+    return { date: `${month}-01`, balanceAmount: balance };
+  });
+}
+
+export function monthComparison(current: number | undefined, previous: number) {
+  if (current == null) return { change: 0, percentage: 0, label: "—" };
+  const change = current - previous;
+  const sign = change >= 0 ? "+" : "−";
+  const percentage = previous === 0
+    ? 0
+    : Math.round((Math.abs(change) / Math.abs(previous)) * 1_000) / 10;
+  return { change, percentage, label: `${sign}${percentage}%` };
+}
+
+function ChevronIcon() {
+  return <img className="ha-chevron-icon" src="/icons/chevron-right.svg" alt="" />;
 }
 
 function gradientStops(

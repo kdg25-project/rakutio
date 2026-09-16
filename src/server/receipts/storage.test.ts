@@ -75,7 +75,7 @@ describe('receipt storage', () => {
       mimeType: 'image/png',
       image,
       now: 100,
-    })).resolves.toEqual({ id: 'receipt-1', objectKey: 'receipts/owner-1/receipt-1', createdAt: 100 })
+    })).resolves.toEqual({ id: 'receipt-1', objectKey: 'receipts/owner-1/receipt-1', createdAt: 100, pageCount: 1 })
 
     expect(bucketMock.put).toHaveBeenCalledWith('receipts/owner-1/receipt-1', expect.any(ArrayBuffer), { httpMetadata: { contentType: 'image/png' } })
     expect(databaseMock.prepare.mock.invocationCallOrder[0]).toBeLessThan(bucketMock.put.mock.invocationCallOrder[0]!)
@@ -90,7 +90,7 @@ describe('receipt storage', () => {
   it('keeps a failed OCR draft retrievable for manual entry', async () => {
     const databaseMock = database()
 
-    await expect(getReceiptDraft(databaseMock.db, 'owner-1', 'receipt-1')).resolves.toEqual({
+    await expect(getReceiptDraft(databaseMock.db, 'owner-1', 'receipt-1')).resolves.toMatchObject({
       id: 'receipt-1',
       mimeType: 'image/png',
       byteSize: 8,

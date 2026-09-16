@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/assets/history')({
       const assets = await requireAssets(request); if (assets instanceof Response) return assets
       const search = new URL(request.url).searchParams
       const fallback = !search.has('from') && !search.has('to') ? assetHistoryRange() : undefined
-      try { return Response.json(await assets.balanceHistory({ from: search.get('from') ?? fallback?.from, to: search.get('to') ?? fallback?.to })) } catch (error) { return errorResponse(error) }
+      try { return Response.json(await assets.balanceHistory({ from: search.get('from') ?? fallback?.from, to: search.get('to') ?? fallback?.to, activeOnly: search.get('activeOnly') === 'true' })) } catch (error) { return errorResponse(error) }
     },
   } },
 })

@@ -10,6 +10,7 @@ export const receiptSchema = z.object({
   merchant: z.string().nullable(),
   purchasedAt: z.string().nullable(),
   total: z.number().nonnegative().nullable(),
+  tax: z.number().nonnegative().nullable(),
   currency: z.string().length(3).nullable(),
   items: z.array(z.object({
     name: z.string(),
@@ -171,6 +172,7 @@ function propertyBySuffix(entity: DocumentAiEntity, suffix: string) {
 export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExtraction {
   const entities = Array.isArray(document.entities) ? document.entities.filter((entity): entity is DocumentAiEntity => Boolean(entity && typeof entity === 'object')) : []
   const total = entityMoney(firstEntity(entities, 'total_amount'))
+  const tax = entityMoney(firstEntity(entities, 'total_tax_amount'))
   const currency = entityText(firstEntity(entities, 'currency'))
   const items = entities.filter((entity) => entity.type === 'line_item').flatMap((entity) => {
     const name = entityText(propertyBySuffix(entity, 'description'))
@@ -181,6 +183,7 @@ export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExt
     merchant: entityText(firstEntity(entities, 'supplier_name')),
     purchasedAt: entityDate(firstEntity(entities, 'receipt_date')),
     total: total.amount,
+    tax: tax.amount,
     currency: total.currency ?? (currency && /^[A-Z]{3}$/.test(currency) ? currency : null),
     items,
   })

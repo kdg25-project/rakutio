@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiProfileRouteImport } from './routes/api/profile'
 import { Route as ApiAssetsHistoryRouteImport } from './routes/api/assets/history'
 import { Route as ApiAssetsTransfersRouteImport } from './routes/api/assets/transfers'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -53,6 +55,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -61,6 +68,11 @@ const SignupRoute = SignupRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProfileRoute = ApiProfileRouteImport.update({
+  id: '/api/profile',
+  path: '/api/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAssetsHistoryRoute = ApiAssetsHistoryRouteImport.update({
@@ -193,8 +205,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/signup': typeof SignupRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/profile': typeof ApiProfileRoute
   '/api/assets/history': typeof ApiAssetsHistoryRoute
   '/api/assets/transfers': typeof ApiAssetsTransfersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -223,8 +237,10 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/signup': typeof SignupRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/profile': typeof ApiProfileRoute
   '/api/assets/history': typeof ApiAssetsHistoryRoute
   '/api/assets/transfers': typeof ApiAssetsTransfersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -254,8 +270,10 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/signup': typeof SignupRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/profile': typeof ApiProfileRoute
   '/api/assets/history': typeof ApiAssetsHistoryRoute
   '/api/assets/transfers': typeof ApiAssetsTransfersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -286,8 +304,10 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
+    | '/register'
     | '/signup'
     | '/api/health'
+    | '/api/profile'
     | '/api/assets/history'
     | '/api/assets/transfers'
     | '/api/auth/$'
@@ -316,8 +336,10 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
+    | '/register'
     | '/signup'
     | '/api/health'
+    | '/api/profile'
     | '/api/assets/history'
     | '/api/assets/transfers'
     | '/api/auth/$'
@@ -346,8 +368,10 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
+    | '/register'
     | '/signup'
     | '/api/health'
+    | '/api/profile'
     | '/api/assets/history'
     | '/api/assets/transfers'
     | '/api/auth/$'
@@ -377,8 +401,10 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRoute
   LoginRoute: typeof LoginRoute
+  RegisterRoute: typeof RegisterRoute
   SignupRoute: typeof SignupRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiProfileRoute: typeof ApiProfileRoute
   ApiAssetsHistoryRoute: typeof ApiAssetsHistoryRoute
   ApiAssetsTransfersRoute: typeof ApiAssetsTransfersRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -423,6 +449,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -435,6 +468,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/profile': {
+      id: '/api/profile'
+      path: '/api/profile'
+      fullPath: '/api/profile'
+      preLoaderRoute: typeof ApiProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/assets/history': {
@@ -632,8 +672,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRoute,
   LoginRoute: LoginRoute,
+  RegisterRoute: RegisterRoute,
   SignupRoute: SignupRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiProfileRoute: ApiProfileRoute,
   ApiAssetsHistoryRoute: ApiAssetsHistoryRoute,
   ApiAssetsTransfersRoute: ApiAssetsTransfersRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

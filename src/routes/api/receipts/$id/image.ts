@@ -15,8 +15,10 @@ export const Route = createFileRoute('/api/receipts/$id/image')({
         const session = await auth.api.getSession({ headers: request.headers })
         if (!session?.user) return errorResponse(401, 'UNAUTHORIZED', 'ログインが必要です。')
 
+        const page = Number(new URL(request.url).searchParams.get('page') ?? '0')
+        if (!Number.isInteger(page) || page < 0) return errorResponse(400, 'INVALID_PAGE', 'ページ番号が不正です。')
         try {
-          const { object, mimeType } = await getReceiptImage(env.DB, env.RECEIPTS, session.user.id, params.id)
+          const { object, mimeType } = await getReceiptImage(env.DB, env.RECEIPTS, session.user.id, params.id, page)
           const headers = new Headers({
             'content-type': object.httpMetadata?.contentType || mimeType,
             'cache-control': 'private, no-store',

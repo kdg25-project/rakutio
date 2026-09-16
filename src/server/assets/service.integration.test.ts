@@ -33,7 +33,7 @@ function createLocalD1() {
 }
 
 async function migrate(db: D1Database) {
-  for (const name of ['0000_ancient_spiral.sql', '0001_ledger_core.sql', '0002_assets.sql', '0003_planning.sql', '0004_asset_balance_bounds.sql', '0005_utility_item_kind.sql', '0006_asset_cascade_delete_guard.sql']) {
+  for (const name of ['0000_ancient_spiral.sql', '0001_ledger_core.sql', '0002_assets.sql', '0003_planning.sql', '0004_asset_balance_bounds.sql', '0005_utility_item_kind.sql', '0006_asset_cascade_delete_guard.sql', '0007_bank_account_details.sql']) {
     const source = await readFile(resolve(process.cwd(), 'drizzle', name), 'utf8')
     for (const sql of source.split('--> statement-breakpoint').map((value) => value.trim()).filter(Boolean)) await db.exec(sql)
   }
@@ -47,12 +47,14 @@ describe('assets and ledger local D1 integration', () => {
   it('keeps opening, adjustment, and transfers idempotent while preserving total assets', async () => {
     const local = createLocalD1(); closers.push(local.close); await migrate(local.db); await user(local.db, 'a'); await user(local.db, 'b')
     const assets = new AssetService(local.db, 'a'); const otherUser = new AssetService(local.db, 'b')
-    const bank = await assets.createAccount({ type: 'bank', name: 'メイン銀行', initialBalanceAmount: 1_000, idempotencyKey: 'bank-open' })
+    const bank = await assets.createAccount({ type: 'bank', name: 'メイン銀行', bankKind: 'checking', bankMemo: '生活費', initialBalanceAmount: 1_000, idempotencyKey: 'bank-open' })
+    expect(bank.account).toMatchObject({ bankKind: 'checking', bankMemo: '生活費' })
     const openingDateParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(bank.account.createdAt))
     const openingPart = (type: Intl.DateTimeFormatPartTypes) => openingDateParts.find((part) => part.type === type)?.value
     expect(bank.entries[0]?.occurredAt).toBe(`${openingPart('year')}-${openingPart('month')}-${openingPart('day')}`)
     const cash = await assets.createAccount({ type: 'cash', name: '財布', initialBalanceAmount: 200, idempotencyKey: 'cash-open' })
     const gift = await assets.createAccount({ type: 'gift', name: '商品券', initialBalanceAmount: 100, idempotencyKey: 'gift-open' })
+    await expect(assets.createAccount({ type: 'bank', name: '従来形式の銀行', initialBalanceAmount: 0, idempotencyKey: 'legacy-bank-open' })).resolves.toMatchObject({ account: { bankKind: 'ordinary', bankMemo: null } })
     const replay = await assets.createAccount({ type: 'bank', name: '別名', initialBalanceAmount: 999, idempotencyKey: 'bank-open' })
     expect(replay).toMatchObject({ idempotent: true, account: { id: bank.account.id, balanceAmount: 1_000 } })
     await expect(assets.transfer({ fromAccountId: bank.account.id, toAccountId: cash.account.id, amount: 1, occurredAt: '2026-09-16', idempotencyKey: 'bank-open' })).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' })
@@ -65,8 +67,13 @@ describe('assets and ledger local D1 integration', () => {
     expect(summary.accounts.find((account) => account.id === bank.account.id)?.balanceAmount).toBe(900)
     expect(summary.accounts.find((account) => account.id === gift.account.id)?.balanceAmount).toBe(200)
     await expect(otherUser.listEntries(bank.account.id)).rejects.toMatchObject({ code: 'ACCOUNT_NOT_FOUND' })
+    await expect(otherUser.updateAccount(bank.account.id, { bankKind: 'time', bankMemo: '別ユーザー' })).rejects.toMatchObject({ code: 'ACCOUNT_NOT_FOUND' })
+    await expect(assets.updateAccount(bank.account.id, { bankKind: 'time', bankMemo: '更新済み' })).resolves.toMatchObject({ bankKind: 'time', bankMemo: '更新済み' })
     await assets.adjustAccount(cash.account.id, { amount: 1, occurredAt: '2026-09-16', idempotencyKey: 'cash-adjustment' })
     await assets.updateAccount(cash.account.id, { isArchived: true })
+    const activeSummary = await assets.listAccounts(false)
+    expect(activeSummary.activeTotalAmount).toBe(activeSummary.accounts.reduce((total, account) => total + account.balanceAmount, 0))
+    await expect(assets.balanceHistory({ from: '2026-09-01', to: '2026-09-30', activeOnly: true })).resolves.toMatchObject({ closingBalanceAmount: activeSummary.activeTotalAmount })
     await expect(assets.adjustAccount(cash.account.id, { amount: 1, occurredAt: '2026-09-16', idempotencyKey: 'cash-adjustment' })).resolves.toMatchObject({ idempotent: true })
     await expect(assets.adjustAccount(cash.account.id, { amount: 1, occurredAt: '2026-09-16', idempotencyKey: 'archived' })).rejects.toMatchObject({ code: 'ACCOUNT_ARCHIVED' })
 
@@ -76,6 +83,14 @@ describe('assets and ledger local D1 integration', () => {
     await expect(assets.balanceHistory({ from: '2026-01-03', to: '2026-01-05' })).resolves.toEqual({
       openingBalanceAmount: 0,
       closingBalanceAmount: 7,
+      monthlyComparison: {
+        currentAsOfDate: '2026-01-05',
+        previousMonthEndDate: '2025-12-31',
+        comparisonBasis: 'as-of-date',
+        currentBalanceAmount: 7,
+        previousMonthEndBalanceAmount: 0,
+        deltaAmount: 7,
+      },
       history: [
         { date: '2026-01-03', deltaAmount: 10, balanceAmount: 10 },
         { date: '2026-01-05', deltaAmount: -3, balanceAmount: 7 },
@@ -86,9 +101,57 @@ describe('assets and ledger local D1 integration', () => {
     await expect(otherUser.balanceHistory({ from: '2026-01-05', to: '2026-12-31' })).resolves.toEqual({
       openingBalanceAmount: 9,
       closingBalanceAmount: 9,
+      monthlyComparison: {
+        currentAsOfDate: '2026-12-31',
+        previousMonthEndDate: '2026-11-30',
+        comparisonBasis: 'month-end',
+        currentBalanceAmount: 9,
+        previousMonthEndBalanceAmount: 9,
+        deltaAmount: 0,
+      },
       history: [],
     })
     await expect(assets.updateAccount(cash.account.id, { isArchived: false })).resolves.toMatchObject({ id: cash.account.id, isArchived: false })
+  })
+
+  it('compares the selected month endpoint with the previous month end across accounts without crossing users', async () => {
+    const local = createLocalD1(); closers.push(local.close); await migrate(local.db); await user(local.db, 'a'); await user(local.db, 'b')
+    const assets = new AssetService(local.db, 'a'); const otherUser = new AssetService(local.db, 'b'); const ledger = new LedgerService(local.db, 'a')
+    const bank = await assets.createAccount({ type: 'bank', name: '比較用銀行', initialBalanceAmount: 0, idempotencyKey: 'comparison-bank' })
+    const cash = await assets.createAccount({ type: 'cash', name: '比較用現金', initialBalanceAmount: 0, idempotencyKey: 'comparison-cash' })
+    await assets.adjustAccount(bank.account.id, { amount: 100, occurredAt: '2026-01-31', idempotencyKey: 'comparison-january' })
+    await assets.adjustAccount(cash.account.id, { amount: 50, occurredAt: '2026-02-02', idempotencyKey: 'comparison-february-cash' })
+    const food = (await ledger.listCategories()).find((category) => category.name === '食費')!
+    await ledger.createTransaction({ type: 'expense', title: '比較用支出', occurredAt: '2026-02-15', accountId: bank.account.id, items: [{ categoryId: food.id, name: '比較用支出', originalAmount: 20 }] }, 'comparison-transaction')
+    const otherBank = await otherUser.createAccount({ type: 'bank', name: '他ユーザー口座', initialBalanceAmount: 0, idempotencyKey: 'other-comparison-bank' })
+    await otherUser.adjustAccount(otherBank.account.id, { amount: 999, occurredAt: '2026-02-28', idempotencyKey: 'other-comparison-adjustment' })
+
+    await expect(assets.balanceHistory({ from: '2026-02-01', to: '2026-02-28' })).resolves.toMatchObject({
+      closingBalanceAmount: 130,
+      monthlyComparison: {
+        currentAsOfDate: '2026-02-28',
+        previousMonthEndDate: '2026-01-31',
+        comparisonBasis: 'month-end',
+        currentBalanceAmount: 130,
+        previousMonthEndBalanceAmount: 100,
+        deltaAmount: 30,
+      },
+    })
+    await expect(assets.balanceHistory({ from: '2026-03-01', to: '2026-03-15' })).resolves.toMatchObject({
+      monthlyComparison: {
+        currentAsOfDate: '2026-03-15',
+        previousMonthEndDate: '2026-02-28',
+        comparisonBasis: 'as-of-date',
+        currentBalanceAmount: 130,
+        previousMonthEndBalanceAmount: 130,
+        deltaAmount: 0,
+      },
+    })
+
+    await assets.updateAccount(cash.account.id, { isArchived: true })
+    await expect(assets.balanceHistory({ from: '2026-02-01', to: '2026-02-28', activeOnly: true })).resolves.toMatchObject({
+      monthlyComparison: { currentBalanceAmount: 80, previousMonthEndBalanceAmount: 100, deltaAmount: -20 },
+    })
   })
 
   it('reverses account effects on transaction update/delete and prevents gift double spending', async () => {

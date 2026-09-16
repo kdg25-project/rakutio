@@ -53,7 +53,7 @@ describe('Document AI receipt adapter', () => {
           { type: 'line_item/amount', normalizedValue: { moneyValue: { units: '4', nanos: 250000000, currencyCode: 'USD' } } },
         ] },
       ],
-    })).toEqual({ merchant: 'テスト商店', purchasedAt: '2026-09-15', total: 12.5, currency: 'USD', items: [{ name: 'りんご', quantity: null, amount: 4.25 }] })
+    })).toEqual({ merchant: 'テスト商店', purchasedAt: '2026-09-15', total: 12.5, tax: null, currency: 'USD', items: [{ name: 'りんご', quantity: null, amount: 4.25 }] })
 
     expect(mapExpenseDocument({ entities: [{ type: 'supplier_name', mentionText: '未確定' }, { type: 'total_amount', mentionText: '合計' }, { type: 'receipt_date', mentionText: '2026-99-99' }] })).toMatchObject({ purchasedAt: null, total: null, currency: null, items: [] })
     expect(mapExpenseDocument({ entities: [{ type: 'receipt_date', mentionText: '2026-02-29' }] }).purchasedAt).toBeNull()

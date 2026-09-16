@@ -1,11 +1,13 @@
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AssetAccount } from '../server/assets/types'
 import { assetHistoryRange, tokyoToday } from '../lib/jst-date'
-import { completeAssetMutation, restoreAssetAccount, transferSelection } from './financial-panels'
+import { bankSettingsAccounts, completeAssetMutation, restoreAssetAccount, transferSelection } from './financial-panels'
 
 function account(id: string, type: AssetAccount['type'], isArchived = false): AssetAccount {
-  return { id, type, name: id, balanceAmount: 0, isArchived, createdAt: 0, updatedAt: 0 }
+  return { id, type, name: id, bankKind: type === 'bank' ? 'ordinary' : null, bankMemo: null, balanceAmount: 0, isArchived, createdAt: 0, updatedAt: 0 }
 }
 
 describe('Tokyo calendar helpers', () => {
@@ -71,5 +73,54 @@ describe('transfer account selection', () => {
   it('keeps still-valid selections and clears impossible defaults when only a gift account remains', () => {
     expect(transferSelection(accounts, 'cash', 'bank')).toMatchObject({ sourceId: 'cash', destinationId: 'bank' })
     expect(transferSelection([account('gift', 'gift')], 'gift', 'gift')).toMatchObject({ sourceId: '', destinationId: '' })
+  })
+})
+
+describe('bank settings account grouping', () => {
+  it('keeps the bank settings list focused on banks while retaining cash and gift management', () => {
+    const grouped = bankSettingsAccounts([account('bank', 'bank'), account('cash', 'cash'), account('gift', 'gift')])
+    expect(grouped.banks.map((item) => item.id)).toEqual(['bank'])
+    expect(grouped.otherAssets.map((item) => item.id)).toEqual(['cash', 'gift'])
+  })
+
+  it('keeps the add CTA in content flow and opens account detail actions from a selected row', async () => {
+    const [styles, component] = await Promise.all([
+      readFile(resolve(process.cwd(), 'src/components/financial-panels.css'), 'utf8'),
+      readFile(resolve(process.cwd(), 'src/components/financial-panels.tsx'), 'utf8'),
+    ])
+    expect(styles).toMatch(/\.finance-bank-add\{[^}]*position:static/)
+    expect(styles).not.toMatch(/\.finance-bank-add\{[^}]*position:fixed/)
+    expect(styles).toMatch(/\.finance-bank-list \.finance-account-row\{[^}]*min-height:50px/)
+    expect(component).toContain("setPanel('details')")
+    expect(component).toContain('BankAccountDetailScreen')
+  })
+
+  it('keeps the bank list row limited to its Figma fields and uses the truthful compact D1 notice', async () => {
+    const component = await readFile(resolve(process.cwd(), 'src/components/financial-panels.tsx'), 'utf8')
+    const bankList = component.slice(component.indexOf('bankAccounts.map'), component.indexOf('</ul>', component.indexOf('bankAccounts.map')))
+
+    expect(bankList).toContain('<b>{account.name}</b>')
+    expect(bankList).toContain("bankKindLabel[account.bankKind ?? 'ordinary']")
+    expect(bankList).toContain('<strong>{yen(account.balanceAmount)}</strong>')
+    expect(bankList).toContain('<ChevronIcon />')
+    expect(bankList).not.toMatch(/残高を調整|>編集</)
+    expect(component).toContain('Cloudflare D1 に保存されます。')
+    expect(component).not.toContain('外部に送信されることはありません')
+  })
+})
+
+describe('financial screen loading states', () => {
+  it('keeps navigation loading inside static skeleton geometry without a spinner', async () => {
+    const component = await readFile(resolve(process.cwd(), 'src/components/financial-panels.tsx'), 'utf8')
+    const styles = await readFile(resolve(process.cwd(), 'src/components/financial-panels-loading.css'), 'utf8')
+
+    expect(component).toContain('function FinancePanelSkeleton')
+    expect(component).toContain('function FinanceInlineSkeleton')
+    expect(component).toContain("if (loading && !assets) return <FinancePanelSkeleton")
+    expect(component).toContain("if (loading && !target) return <FinancePanelSkeleton")
+    expect(component).toContain("if (loading && !rules.length && !categories.length && !accounts.length) return <FinancePanelSkeleton")
+    expect(component).not.toContain('function Loading(')
+    expect(styles).not.toContain('finance-spin')
+    expect(styles).toContain('finance-skeleton-pulse')
   })
 })

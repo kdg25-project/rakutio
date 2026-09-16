@@ -1,11 +1,12 @@
 import { LedgerError } from '../ledger/service'
-import type { AssetAccount, AssetAccountType, AssetBalanceHistory, AssetBalanceHistoryPoint, AssetEntry, AssetEntryKind, AssetSummary } from './types'
+import type { AssetAccount, AssetAccountType, AssetBalanceHistory, AssetBalanceHistoryPoint, AssetEntry, AssetEntryKind, AssetMonthlyComparison, AssetSummary, BankAccountKind } from './types'
 
 type SqlValue = string | number | null
 type Row = Record<string, unknown>
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 const MAX_AMOUNT = 1_000_000_000_000
 const MAX_ASSET_BALANCE = 1_000_000_000_000
+const MAX_ASSET_MONTHLY_DELTA = MAX_ASSET_BALANCE * 2
 
 function id() { return crypto.randomUUID() }
 function now() { return Date.now() }
@@ -51,6 +52,15 @@ function optionalText(value: unknown, field: string, max = 1_000) {
   if (result.length > max) throw new LedgerError('INVALID_INPUT', `${field} は ${max} 文字以下にしてください。`)
   return result
 }
+function optionalNullableText(value: unknown, field: string, max = 1_000) {
+  const result = optionalText(value, field, max)
+  return result || null
+}
+function bankKind(value: unknown): BankAccountKind {
+  if (value === undefined || value === null || value === '') return 'ordinary'
+  if (value === 'ordinary' || value === 'checking' || value === 'time') return value
+  throw new LedgerError('INVALID_BANK_KIND', '口座種類が不正です。')
+}
 function date(value: unknown) {
   const result = text(value, '日付', 10)
   if (!DAY.test(result)) throw new LedgerError('INVALID_INPUT', '日付は YYYY-MM-DD 形式で指定してください。')
@@ -58,12 +68,35 @@ function date(value: unknown) {
   if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) throw new LedgerError('INVALID_INPUT', '日付は実在する日付で指定してください。')
   return result
 }
+function daysInMonth(value: string) {
+  const [year, month] = value.split('-').map(Number)
+  return new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+function previousMonthEnd(value: string) {
+  const [year, month] = value.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, month - 1, 0))
+  return `${lastDay.getUTCFullYear()}-${String(lastDay.getUTCMonth() + 1).padStart(2, '0')}-${String(lastDay.getUTCDate()).padStart(2, '0')}`
+}
+function monthlyComparisonDates(to: string) {
+  return {
+    currentAsOfDate: to,
+    previousMonthEndDate: previousMonthEnd(to),
+    comparisonBasis: Number(to.slice(-2)) === daysInMonth(to) ? 'month-end' as const : 'as-of-date' as const,
+  }
+}
 function amount(value: unknown, field: string, allowNegative = false) {
   if (!Number.isSafeInteger(value) || (!allowNegative && (value as number) < 0) || Math.abs(value as number) > MAX_AMOUNT) throw new LedgerError('INVALID_AMOUNT', `${field} は安全な整数円で指定してください。`)
   return value as number
 }
 function accountFrom(row: Row): AssetAccount {
-  return { id: str(row, 'id'), type: str(row, 'type') as AssetAccountType, name: str(row, 'name'), balanceAmount: assetInteger(row.balance_amount, '口座残高'), isArchived: Boolean(num(row, 'is_archived')), createdAt: num(row, 'created_at'), updatedAt: num(row, 'updated_at') }
+  const type = str(row, 'type') as AssetAccountType
+  const storedKind = row.bank_kind == null ? null : String(row.bank_kind)
+  return {
+    id: str(row, 'id'), type, name: str(row, 'name'),
+    bankKind: type === 'bank' ? (storedKind === 'checking' || storedKind === 'time' ? storedKind : 'ordinary') : null,
+    bankMemo: type === 'bank' && row.bank_memo != null ? String(row.bank_memo) : null,
+    balanceAmount: assetInteger(row.balance_amount, '口座残高'), isArchived: Boolean(num(row, 'is_archived')), createdAt: num(row, 'created_at'), updatedAt: num(row, 'updated_at'),
+  }
 }
 function entryFrom(row: Row): AssetEntry {
   return { id: str(row, 'id'), accountId: str(row, 'account_id'), operationId: row.operation_id == null ? null : String(row.operation_id), transactionId: row.transaction_id == null ? null : String(row.transaction_id), kind: str(row, 'kind') as AssetEntryKind, amount: assetInteger(row.amount, '資産明細額'), occurredAt: str(row, 'occurred_at'), memo: str(row, 'memo'), createdAt: num(row, 'created_at') }
@@ -77,17 +110,19 @@ export class AssetService {
     return { totalAmount: sumAssetAmounts(accounts.map((account) => account.balanceAmount), '資産合計'), activeTotalAmount: sumAssetAmounts(accounts.filter((account) => !account.isArchived).map((account) => account.balanceAmount), '有効資産合計'), accounts }
   }
 
-  async createAccount(input: { type: unknown; name: unknown; initialBalanceAmount?: unknown; idempotencyKey: unknown }) {
+  async createAccount(input: { type: unknown; name: unknown; bankKind?: unknown; bankMemo?: unknown; initialBalanceAmount?: unknown; idempotencyKey: unknown }) {
     const key = text(input.idempotencyKey, 'リクエストキー')
     const existing = await this.operationByKey(key)
     if (existing) return this.replayedOpening(existing)
     const type = input.type
     if (type !== 'bank' && type !== 'cash' && type !== 'gift') throw new LedgerError('INVALID_ACCOUNT_TYPE', '口座種別が不正です。')
     const name = text(input.name, '口座名', 80); const initialBalanceAmount = amount(input.initialBalanceAmount ?? 0, '初期残高', true)
+    const detailKind = type === 'bank' ? bankKind(input.bankKind) : null
+    const detailMemo = type === 'bank' ? optionalNullableText(input.bankMemo, '銀行メモ', 500) : null
     if (type === 'gift' && initialBalanceAmount < 0) throw new LedgerError('INVALID_AMOUNT', 'ギフト券残高は負数にできません。')
     const accountId = id(); const operationId = id(); const timestamp = now()
     const statements = [
-      statement(this.db, 'INSERT INTO asset_account (id, user_id, type, name, balance_amount, is_archived, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?, ?)', [accountId, this.userId, type, name, timestamp, timestamp]),
+      statement(this.db, 'INSERT INTO asset_account (id, user_id, type, name, bank_kind, bank_memo, balance_amount, is_archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)', [accountId, this.userId, type, name, detailKind, detailMemo, timestamp, timestamp]),
       statement(this.db, 'INSERT INTO asset_operation (id, user_id, account_id, key, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)', [operationId, this.userId, accountId, key, 'opening', timestamp]),
     ]
     if (initialBalanceAmount !== 0) statements.push(this.entryStatement({ accountId, operationId, kind: 'opening', amount: initialBalanceAmount, occurredAt: jstDate(timestamp), memo: '初期残高', createdAt: timestamp }))
@@ -99,12 +134,14 @@ export class AssetService {
     return { account: await this.requiredAccount(accountId), entries: await this.entriesForOperation(operationId), idempotent: false }
   }
 
-  async updateAccount(accountId: string, input: { name?: unknown; isArchived?: unknown }) {
+  async updateAccount(accountId: string, input: { name?: unknown; isArchived?: unknown; bankKind?: unknown; bankMemo?: unknown }) {
     const current = await this.requiredAccount(accountId)
     const name = input.name === undefined ? current.name : text(input.name, '口座名', 80)
     const isArchived = input.isArchived === undefined ? current.isArchived : input.isArchived
+    const detailKind = current.type === 'bank' ? (input.bankKind === undefined ? current.bankKind ?? 'ordinary' : bankKind(input.bankKind)) : null
+    const detailMemo = current.type === 'bank' ? (input.bankMemo === undefined ? current.bankMemo : optionalNullableText(input.bankMemo, '銀行メモ', 500)) : null
     if (typeof isArchived !== 'boolean') throw new LedgerError('INVALID_INPUT', 'アーカイブ状態が不正です。')
-    try { await statement(this.db, 'UPDATE asset_account SET name = ?, is_archived = ?, updated_at = ? WHERE id = ? AND user_id = ?', [name, isArchived ? 1 : 0, now(), accountId, this.userId]).run() }
+    try { await statement(this.db, 'UPDATE asset_account SET name = ?, bank_kind = ?, bank_memo = ?, is_archived = ?, updated_at = ? WHERE id = ? AND user_id = ?', [name, detailKind, detailMemo, isArchived ? 1 : 0, now(), accountId, this.userId]).run() }
     catch (error) { if (String(error).includes('UNIQUE')) throw new LedgerError('ACCOUNT_EXISTS', '同じ名前の口座がすでにあります。', 409); throw error }
     return this.requiredAccount(accountId)
   }
@@ -116,11 +153,13 @@ export class AssetService {
   }
 
   /** Real movement dates, plus exact inclusive period boundary snapshots. */
-  async balanceHistory(input: { from: unknown; to: unknown }): Promise<AssetBalanceHistory> {
+  async balanceHistory(input: { from: unknown; to: unknown; activeOnly?: unknown }): Promise<AssetBalanceHistory> {
     const from = date(input.from); const to = date(input.to)
     if (from > to) throw new LedgerError('INVALID_INPUT', '開始日は終了日以前にしてください。')
-    const openingEntries = await rows(this.db, 'SELECT amount FROM asset_entry WHERE user_id = ? AND occurred_at < ? ORDER BY occurred_at, id', [this.userId, from])
-    const changes = await rows(this.db, 'SELECT occurred_at AS date, amount FROM asset_entry WHERE user_id = ? AND occurred_at >= ? AND occurred_at <= ? ORDER BY occurred_at, id', [this.userId, from, to])
+    const activeOnly = input.activeOnly === true
+    const accountScope = activeOnly ? ' AND EXISTS (SELECT 1 FROM asset_account WHERE asset_account.id = asset_entry.account_id AND asset_account.user_id = asset_entry.user_id AND asset_account.is_archived = 0)' : ''
+    const openingEntries = await rows(this.db, `SELECT amount FROM asset_entry WHERE user_id = ? AND occurred_at < ?${accountScope} ORDER BY occurred_at, id`, [this.userId, from])
+    const changes = await rows(this.db, `SELECT occurred_at AS date, amount FROM asset_entry WHERE user_id = ? AND occurred_at >= ? AND occurred_at <= ?${accountScope} ORDER BY occurred_at, id`, [this.userId, from, to])
     let balanceAmount = sumAssetAmounts(openingEntries.map((entry) => entry.amount), '資産履歴残高')
     const byDate = new Map<string, unknown[]>()
     for (const change of changes) { const date = str(change, 'date'); const values = byDate.get(date) ?? []; values.push(change.amount); byDate.set(date, values) }
@@ -130,10 +169,22 @@ export class AssetService {
       balanceAmount = sumAssetAmounts([balanceAmount, deltaAmount], '資産履歴残高')
       history.push({ date, deltaAmount, balanceAmount })
     }
+    const comparisonDates = monthlyComparisonDates(to)
+    const [currentBalanceAmount, previousMonthEndBalanceAmount] = await Promise.all([
+      this.balanceAsOf(to, accountScope),
+      this.balanceAsOf(comparisonDates.previousMonthEndDate, accountScope),
+    ])
+    const monthlyComparison: AssetMonthlyComparison = {
+      ...comparisonDates,
+      currentBalanceAmount,
+      previousMonthEndBalanceAmount,
+      deltaAmount: sumAssetAmounts([currentBalanceAmount, -previousMonthEndBalanceAmount], '前月比', MAX_ASSET_MONTHLY_DELTA),
+    }
     return {
       history,
       openingBalanceAmount: sumAssetAmounts(openingEntries.map((entry) => entry.amount), '期首資産残高'),
       closingBalanceAmount: balanceAmount,
+      monthlyComparison,
     }
   }
 
@@ -180,6 +231,10 @@ export class AssetService {
   }
 
   private async operationByKey(key: string) { return one(this.db, 'SELECT * FROM asset_operation WHERE user_id = ? AND key = ?', [this.userId, key]) }
+  private async balanceAsOf(asOfDate: string, accountScope: string) {
+    const entries = await rows(this.db, `SELECT asset_entry.amount AS amount FROM asset_entry WHERE asset_entry.user_id = ? AND asset_entry.occurred_at <= ?${accountScope}`, [this.userId, asOfDate])
+    return sumAssetAmounts(entries.map((entry) => entry.amount), '資産残高')
+  }
   private async replayedOpening(operation: Row) {
     this.assertOperationKind(operation, 'opening')
     return { account: await this.requiredAccount(str(operation, 'account_id')), entries: await this.entriesForOperation(str(operation, 'id')), idempotent: true }

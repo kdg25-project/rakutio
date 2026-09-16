@@ -1,0 +1,22 @@
+.finance-panel-skeleton {
+  display: grid;
+  gap: 12px;
+}
+
+.finance-panel-skeleton i {
+  animation: finance-skeleton-pulse 1.25s ease-in-out infinite alternate;
+  background: #ecece8;
+  border-radius: 12px;
+  display: block;
+  min-height: 76px;
+}
+
+.finance-panel-skeleton i:nth-child(2) { min-height: 142px; }
+.finance-panel-skeleton i:nth-child(3) { min-height: 96px; }
+
+.finance-inline-skeleton { display: grid; gap: 8px; padding: 10px 0; }
+.finance-inline-skeleton i { animation: finance-skeleton-pulse 1.25s ease-in-out infinite alternate; background: #ecece8; border-radius: 7px; display: block; height: 42px; }
+
+@keyframes finance-skeleton-pulse {
+  to { opacity: .58; }
+}

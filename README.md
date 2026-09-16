@@ -2,7 +2,7 @@
 
 仕様の参照元: [Notion](https://app.notion.com/p/3db704c9a94380e69310da2a6cb984bf?source=copy_link)
 
-TanStack Start を Cloudflare Workers で動かすための基盤です。メール/パスワード認証、Cloudflare D1、Drizzle ORM、Google Cloud Document AI Expense Parser によるレシート OCR の最小確認画面を含みます。
+TanStack Start を Cloudflare Workers で動かす家計簿アプリです。Figma 参照に合わせたモバイル画面、メール/パスワード認証、Cloudflare D1、Drizzle ORM、Google Cloud Document AI Expense Parser によるレシート OCR を実装しています。
 
 ## 構成
 
@@ -53,12 +53,9 @@ Cloudflare Workers Builds では、Vite/TanStack Start の生成処理を先に�
 
 `npx wrangler deploy` 単体では TanStack Start が生成するエントリとマニフェストが存在しないため、`#tanstack-router-entry` などを解決できず失敗します。ローカルから一続きで実行する場合だけ、既存の `npm run deploy`（`npm run build && wrangler deploy`）を使えます。Workers Builds の Build command と Deploy command の両方に `npm run deploy` は設定しません。詳細は [デプロイ手順](./docs/deployment.md) を参照してください。
 
-`wrangler.jsonc` の `database_id` は未作成状態のプレースホルダーです。本番用 D1 を作成して表示された ID に置き換えてから、マイグレーションとデプロイを行います。
+`wrangler.jsonc` には D1 の `database_id` と R2 の binding を設定済みです。デプロイ前に、接続先 Cloudflare アカウントで同じ D1/R2 リソースを確認してからマイグレーションを適用します。
 
 ```bash
-npx wrangler d1 create kakeibo-2026
-# 表示された database_id を wrangler.jsonc に設定する
-npx wrangler r2 bucket create kakeibo-2026-receipts
 npx wrangler d1 migrations apply DB --remote
 npm run deploy
 ```
@@ -80,12 +77,14 @@ npx wrangler secret put DOCUMENT_AI_SERVICE_ACCOUNT_PRIVATE_KEY
 
 `.dev.vars` はアップロード・コミットしません。
 
-## 実装済みの境界
+## 実装済み
 
 - `/app` と `/api/ocr/receipt` はログイン済みセッションを要求します。
 - Better Auth の `user`、`session`、`account`、`verification` テーブルは [Drizzle migration](./drizzle/0000_ancient_spiral.sql) で管理します。D1 は対話的トランザクションに対応しないため、Drizzle adapter は `transaction: false` を使用します。
-- [ledger core migration](./drizzle/0001_ledger_core.sql) は、レシート下書き、カテゴリ、明細、明細項目、冪等性キーを D1 で管理します。元画像はユーザーごとの private R2 object として保存し、認証済みの所有者だけが取得できます。
-- OCR は PNG / JPEG / WebP を受け付け、画像署名、8 MB のストリーム上限、認証・処理を通した20秒タイムアウトを検証します。OCR 処理に失敗しても、保存済みレシートには受付 ID と認証済み画像取得 URL を返すため、後続の確認・再処理の参照に使えます。
+- Figma 参照に合わせたホーム、履歴、明細登録、分析、設定、プロフィール、資産、予算、定期取引の画面とアプリ内遷移を提供します。
+- [ledger core migration](./drizzle/0001_ledger_core.sql) と後続 migration は、レシート下書き、複数ページ、カテゴリ、明細、資産、予算、定期取引、プロフィール設定を D1 で管理します。元画像はユーザーごとの private R2 object として保存し、認証済みの所有者だけが取得できます。
+- レシートは PNG / JPEG / WebP を受け付け、画像署名、8 MB のストリーム上限、認証・処理を通した20秒タイムアウトを検証します。カメラでは `getUserMedia` によるライブ撮影と端末ファイル選択を使え、複数ページの追加、ページ別の状態表示、失敗ページの再読み取りに対応します。
+- OCR 処理に失敗しても、保存済みレシートには受付 ID と認証済み画像取得 URL を返すため、後続の確認・再処理の参照に使えます。
 - Document AI への送信先は `us` または `eu` の固定リージョンと Google OAuth / Document AI ホストだけに限定します。Expense Parser の `supplier_name`、`receipt_date`、`currency`、`total_amount`、`line_item` の説明・金額だけを既存の表示形式へ対応付け、不明な値は `null` にします。
 
 ## 現在の API
@@ -98,7 +97,7 @@ npx wrangler secret put DOCUMENT_AI_SERVICE_ACCOUNT_PRIVATE_KEY
 | `GET /api/receipts/:id` | 所有者のレシート下書きを取得 |
 | `GET /api/receipts/:id/image` | 所有者だけに private R2 の元画像を返却 |
 
-`npm run test` は20件の基準を拡張した現在22件のユニットテストで、OCR の値正規化・設定エラー、アップロード制約、R2 所有者境界、台帳計算と API 境界を検証します。
+`npm run test` は OCR の値正規化・設定エラー、複数ページのアップロードと再試行、R2 所有者境界、台帳計算、認証導線、画面レイアウトと API 境界を検証します。
 
 ## Document AI の準備
 
@@ -108,8 +107,9 @@ Workers から使うサービスアカウントには対象プロジェクトで
 
 Expense Parser は10ページ以下の文書で 1 文書あたり $0.10 です。継続的な無料枠は価格表に記載されていません。新規かつ対象の Google Cloud アカウントは $300・90日間の無料トライアルを利用できる場合があります。Document OCR の「最初の1,000ページ無料」は Expense Parser には適用しません。
 
-## 今回は未実装
+## 本番前に確認すること
 
-実際の家計簿画面、銀行連携、資産管理、予算、定期取引、集計・分析、OCR 内容を確定して明細へ反映する画面、カテゴリ分類は未実装です。D1 の台帳コアと private R2 のレシート下書きは準備済みですが、業務画面の完成を意味しません。
-
-`docs/design-reference` に確認できた Figma 参照バッファは4画像のみです。画面仕様を補完するには不足しているため、このアプリの Figma 準拠 UI は未着手です。
+- Cloudflare の接続先で D1/R2 resource、全 migration、Workers Builds の設定を確認します。ローカルの build・テスト結果はリモート D1/R2 への適用や公開を意味しません。
+- `BETTER_AUTH_SECRET`、公開 URL に一致する `BETTER_AUTH_URL`、Document AI の project/location/processor/サービスアカウント secret を Workers に設定し、実際の登録・ログイン・OCR を確認します。
+- ライブ撮影は HTTPS とカメラ権限が必要です。実端末での権限許可、前後カメラ切替、撮影から OCR 完了までの動作は別途確認します。
+- Document AI の processor 権限、利用上限、課金、実レシートの抽出精度は Google Cloud 側の設定と本番 secret に依存するため、実環境で確認します。

@@ -28,14 +28,22 @@ export const Route = createFileRoute('/api/receipts/$id/retry')({
         const session = await auth.api.getSession({ headers: request.headers })
         if (!session?.user) return errorResponse(401, 'UNAUTHORIZED', 'ログインが必要です。')
 
+        let allPages = false
         try {
-          return Response.json(await retryReceiptAnalysis({
+          const body = await request.clone().json() as { allPages?: unknown }
+          allPages = body.allPages === true
+        } catch { /* an empty body retries failed pages only */ }
+
+        try {
+          const result = await retryReceiptAnalysis({
             db: env.DB,
             bucket: env.RECEIPTS,
             userId: session.user.id,
             receiptId: params.id,
             extract: extractReceipt,
-          }))
+            allPages,
+          })
+          return Response.json(result.receipt ? result : { ...result, error: { code: 'OCR_FAILED', message: 'OCR に失敗しました。内容を確認して手入力してください。' } }, { status: result.receipt ? 200 : 502 })
         } catch (error) {
           if (error instanceof ReceiptStorageError) return storageErrorResponse(error)
           if (error instanceof OcrConfigurationError) return errorResponse(503, 'OCR_UNAVAILABLE', error.message, params.id)
