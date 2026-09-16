@@ -1,0 +1,9 @@
+# Copy this file to .dev.vars and replace every value before running the app.
+BETTER_AUTH_SECRET="replace-with-a-random-secret-at-least-32-characters-long"
+BETTER_AUTH_URL="http://localhost:5173"
+DOCUMENT_AI_PROJECT_ID=""
+DOCUMENT_AI_LOCATION="us"
+DOCUMENT_AI_PROCESSOR_ID=""
+DOCUMENT_AI_PROCESSOR_VERSION=""
+DOCUMENT_AI_SERVICE_ACCOUNT_EMAIL=""
+DOCUMENT_AI_SERVICE_ACCOUNT_PRIVATE_KEY=""
