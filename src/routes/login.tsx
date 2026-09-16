@@ -29,7 +29,9 @@ function Login() {
   }
 
   return (
-    <section className="card auth-card">
+    <section className="card auth-card auth-screen">
+      <p className="app-wordmark">家計簿</p>
+      <p className="auth-welcome">ようこそ</p>
       <h1>ログイン</h1>
       <form onSubmit={onSubmit} className="form">
         <label>メールアドレス<input name="email" type="email" autoComplete="email" required /></label>
@@ -37,7 +39,7 @@ function Login() {
         {error && <p className="error" role="alert">{error}</p>}
         <button className="button" disabled={isSubmitting}>{isSubmitting ? 'ログイン中…' : 'ログイン'}</button>
       </form>
-      <p>アカウントがない場合は <Link to="/signup">新規登録</Link></p>
+      <p className="auth-switch">アカウントがない場合は <Link to="/signup">新規登録</Link></p>
     </section>
   )
 }

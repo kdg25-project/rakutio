@@ -9,6 +9,7 @@ import type {
   LedgerTransactionInput,
   LedgerTransactionItem,
   LedgerTransactionType,
+  UtilityKind,
 } from './types'
 
 type SqlValue = string | number | null
@@ -84,6 +85,24 @@ function recentMonths(lastMonth: string, count = 6) {
 function statement(db: D1Database, query: string, values: SqlValue[] = []) { return db.prepare(query).bind(...values) }
 function rowNumber(row: Row, key: string) { return Number(row[key]) }
 function rowString(row: Row, key: string) { const value = row[key]; return value == null ? '' : String(value) }
+function aggregateInteger(value: unknown, field: string) {
+  let parsed: bigint
+  if (typeof value === 'bigint') parsed = value
+  else if (typeof value === 'number' && Number.isSafeInteger(value)) parsed = BigInt(value)
+  else if (typeof value === 'string' && /^-?\d+$/.test(value)) parsed = BigInt(value)
+  else throw new LedgerError('UNSAFE_AGGREGATE', `${field} を安全な整数として集計できません。`)
+  if (parsed < BigInt(Number.MIN_SAFE_INTEGER) || parsed > BigInt(Number.MAX_SAFE_INTEGER)) throw new LedgerError('UNSAFE_AGGREGATE', `${field} が集計可能な範囲を超えています。`)
+  return Number(parsed)
+}
+function addAggregate(total: number, value: number, field: string) {
+  if (!Number.isSafeInteger(total) || !Number.isSafeInteger(value) || total + value < Number.MIN_SAFE_INTEGER || total + value > Number.MAX_SAFE_INTEGER) throw new LedgerError('UNSAFE_AGGREGATE', `${field} が集計可能な範囲を超えています。`)
+  return total + value
+}
+function mappedAssetBalanceError(error: unknown) {
+  const message = String(error)
+  if (message.includes('asset balance out of range') || message.includes('asset aggregate out of range') || message.includes('asset entry amount out of range')) return new LedgerError('ASSET_BALANCE_LIMIT_EXCEEDED', '口座残高または資産合計が管理可能な範囲を超えます。', 422)
+  return null
+}
 
 function categoryFromRow(row: Row): LedgerCategory {
   return { id: rowString(row, 'id'), name: rowString(row, 'name'), color: rowString(row, 'color'), icon: rowString(row, 'icon'), isDefault: Boolean(rowNumber(row, 'is_default')), createdAt: rowNumber(row, 'created_at'), updatedAt: rowNumber(row, 'updated_at') }
@@ -94,7 +113,7 @@ function itemFromRow(row: Row): LedgerTransactionItem {
     originalAmount: rowNumber(row, 'original_amount'), itemDiscountAmount: rowNumber(row, 'item_discount_amount'),
     allocatedReceiptDiscountAmount: rowNumber(row, 'allocated_receipt_discount_amount'), finalAmount: rowNumber(row, 'final_amount'),
     allocatedPointAmount: rowNumber(row, 'allocated_point_amount'), allocatedGiftCertificateAmount: rowNumber(row, 'allocated_gift_certificate_amount'),
-    paidAmount: rowNumber(row, 'paid_amount'), sortOrder: rowNumber(row, 'sort_order'),
+    paidAmount: rowNumber(row, 'paid_amount'), utilityKind: row.utility_kind == null ? null : rowString(row, 'utility_kind') as UtilityKind, sortOrder: rowNumber(row, 'sort_order'),
   }
 }
 function transactionFromRow(row: Row, items: LedgerTransactionItem[]): LedgerTransaction {
@@ -242,6 +261,7 @@ export class LedgerService {
       const raced = await one(this.db, 'SELECT transaction_id FROM ledger_idempotency WHERE user_id = ? AND key = ?', [this.userId, key])
       if (raced) return { transaction: (await this.getTransaction(rowString(raced, 'transaction_id')))! , idempotent: true }
       if (String(error).includes('ledger_transaction.receipt_id') || String(error).includes('ledger_transaction_receipt_unique')) throw new LedgerError('RECEIPT_ALREADY_ATTACHED', 'このレシートはすでに別の明細に添付されています。', 409)
+      const assetError = mappedAssetBalanceError(error); if (assetError) throw assetError
       throw error
     }
     return { transaction: (await this.getTransaction(transactionId))!, idempotent: false }
@@ -258,13 +278,14 @@ export class LedgerService {
     const statements = [statement(this.db, `UPDATE ledger_transaction SET receipt_id = ?, account_id = ?, gift_account_id = ?, type = ?, occurred_at = ?, title = ?, merchant = ?, merchant_normalized = ?, memo = ?, payment_method = ?, gross_amount = ?, item_discount_amount = ?, receipt_discount_amount = ?, discount_amount = ?, net_amount = ?, point_used_amount = ?, gift_certificate_used_amount = ?, non_cash_amount = ?, cash_paid_amount = ?, revision = ?, updated_at = ? WHERE id = ? AND user_id = ? AND revision = ?`, this.transactionValues(normalized, nextRevision, updatedAt).concat([transactionId, this.userId, revision as number])),
       statement(this.db, 'DELETE FROM asset_entry WHERE transaction_id = ? AND user_id = ? AND EXISTS (SELECT 1 FROM ledger_transaction AS t WHERE t.id = ? AND t.user_id = ? AND t.revision = ?)', [transactionId, this.userId, transactionId, this.userId, nextRevision]),
       statement(this.db, 'DELETE FROM ledger_transaction_item WHERE transaction_id = ? AND EXISTS (SELECT 1 FROM ledger_transaction AS t WHERE t.id = ? AND t.user_id = ? AND t.revision = ?)', [transactionId, transactionId, this.userId, nextRevision]),
-      ...this.itemInsertStatements(transactionId, normalized, `INSERT INTO ledger_transaction_item (id, transaction_id, category_id, name, original_amount, item_discount_amount, allocated_receipt_discount_amount, final_amount, allocated_point_amount, allocated_gift_certificate_amount, paid_amount, sort_order) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ledger_transaction AS t WHERE t.id = ? AND t.user_id = ? AND t.revision = ?)`, [transactionId, this.userId, nextRevision]),
+      ...this.itemInsertStatements(transactionId, normalized, `INSERT INTO ledger_transaction_item (id, transaction_id, category_id, name, original_amount, item_discount_amount, allocated_receipt_discount_amount, final_amount, allocated_point_amount, allocated_gift_certificate_amount, paid_amount, utility_kind, sort_order) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ledger_transaction AS t WHERE t.id = ? AND t.user_id = ? AND t.revision = ?)`, [transactionId, this.userId, nextRevision]),
       ...this.assetEntryStatements(transactionId, normalized, updatedAt, `INSERT INTO asset_entry (id, user_id, account_id, operation_id, transaction_id, kind, amount, occurred_at, memo, created_at) SELECT ?, ?, ?, NULL, ?, 'transaction', ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ledger_transaction AS t WHERE t.id = ? AND t.user_id = ? AND t.revision = ?)`, [transactionId, this.userId, nextRevision]),
     ]
     let results
     try { results = await this.db.batch(statements) }
     catch (error) {
       if (String(error).includes('ledger_transaction.receipt_id') || String(error).includes('ledger_transaction_receipt_unique')) throw new LedgerError('RECEIPT_ALREADY_ATTACHED', 'このレシートはすでに別の明細に添付されています。', 409)
+      const assetError = mappedAssetBalanceError(error); if (assetError) throw assetError
       throw error
     }
     if ((results[0]?.meta.changes ?? 0) !== 1) {
@@ -276,7 +297,9 @@ export class LedgerService {
 
   async deleteTransaction(transactionId: string, revision: unknown) {
     if (!Number.isSafeInteger(revision) || (revision as number) < 1) throw new LedgerError('INVALID_INPUT', '更新番号が不正です。')
-    const result = await statement(this.db, 'DELETE FROM ledger_transaction WHERE id = ? AND user_id = ? AND revision = ?', [transactionId, this.userId, revision as number]).run()
+    let result
+    try { result = await statement(this.db, 'DELETE FROM ledger_transaction WHERE id = ? AND user_id = ? AND revision = ?', [transactionId, this.userId, revision as number]).run() }
+    catch (error) { const assetError = mappedAssetBalanceError(error); if (assetError) throw assetError; throw error }
     if (result.meta.changes === 1) return
     const latest = await this.getTransaction(transactionId)
     if (!latest) throw new LedgerError('NOT_FOUND', '明細が見つかりません。', 404)
@@ -285,25 +308,51 @@ export class LedgerService {
 
   async summary(inputMonth: unknown): Promise<LedgerSummary> {
     const value = month(inputMonth); const bounds = monthBounds(value); const previous = monthBounds(previousMonth(value))
-    const totals = await one(this.db, `SELECT COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.cash_paid_amount ELSE 0 END), 0) AS expense_cash_paid_amount, COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.cash_paid_amount ELSE 0 END), 0) AS income_cash_paid_amount FROM ledger_transaction AS t WHERE t.user_id = ? AND t.occurred_at >= ? AND t.occurred_at < ?`, [this.userId, bounds.from, bounds.to]) ?? {}
-    const previousTotals = await one(this.db, `SELECT COALESCE(SUM(t.cash_paid_amount), 0) AS expense_cash_paid_amount FROM ledger_transaction AS t WHERE t.user_id = ? AND t.type = 'expense' AND t.occurred_at >= ? AND t.occurred_at < ?`, [this.userId, previous.from, previous.to]) ?? {}
-    const categoryRows = await rows(this.db, `SELECT c.id, c.name, c.color, c.icon, c.is_default, c.created_at, c.updated_at, COALESCE(SUM(CASE WHEN t.id IS NOT NULL THEN i.paid_amount ELSE 0 END), 0) AS cash_paid_amount, COUNT(DISTINCT t.id) AS transaction_count FROM ledger_category AS c LEFT JOIN ledger_transaction_item AS i ON i.category_id = c.id LEFT JOIN ledger_transaction AS t ON t.id = i.transaction_id AND t.user_id = c.user_id AND t.type = 'expense' AND t.occurred_at >= ? AND t.occurred_at < ? WHERE c.user_id = ? GROUP BY c.id ORDER BY cash_paid_amount DESC, c.created_at`, [bounds.from, bounds.to, this.userId])
-    const trendRows = await rows(this.db, `SELECT t.occurred_at AS date, COALESCE(SUM(t.cash_paid_amount), 0) AS cash_paid_amount FROM ledger_transaction AS t WHERE t.user_id = ? AND t.type = 'expense' AND t.occurred_at >= ? AND t.occurred_at < ? GROUP BY t.occurred_at ORDER BY t.occurred_at`, [this.userId, bounds.from, bounds.to])
     const trendMonths = recentMonths(value); const trendStart = `${trendMonths[0]}-01`
-    const monthlyTotals = await rows(this.db, `SELECT substr(t.occurred_at, 1, 7) AS month, COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.cash_paid_amount ELSE 0 END), 0) AS income_cash_paid_amount, COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.cash_paid_amount ELSE 0 END), 0) AS expense_cash_paid_amount FROM ledger_transaction AS t WHERE t.user_id = ? AND t.occurred_at >= ? AND t.occurred_at < ? GROUP BY substr(t.occurred_at, 1, 7)`, [this.userId, trendStart, bounds.to])
-    const monthlyCategoryTotals = await rows(this.db, `SELECT substr(t.occurred_at, 1, 7) AS month, COALESCE(SUM(CASE WHEN c.name IN ('住居費', '通信費', 'サブスク', '保険') THEN i.paid_amount ELSE 0 END), 0) AS fixed_expense_cash_paid_amount, COALESCE(SUM(CASE WHEN c.name = '光熱費' THEN i.paid_amount ELSE 0 END), 0) AS utility_cash_paid_amount FROM ledger_transaction AS t INNER JOIN ledger_transaction_item AS i ON i.transaction_id = t.id INNER JOIN ledger_category AS c ON c.id = i.category_id WHERE t.user_id = ? AND t.type = 'expense' AND t.occurred_at >= ? AND t.occurred_at < ? GROUP BY substr(t.occurred_at, 1, 7)`, [this.userId, trendStart, bounds.to])
-    const assetTotals = await one(this.db, 'SELECT COALESCE(SUM(balance_amount), 0) AS total_amount, COALESCE(SUM(CASE WHEN is_archived = 0 THEN balance_amount ELSE 0 END), 0) AS active_total_amount FROM asset_account WHERE user_id = ?', [this.userId]) ?? {}
-    const expenseCashPaidAmount = rowNumber(totals, 'expense_cash_paid_amount'); const previousExpenseCashPaidAmount = rowNumber(previousTotals, 'expense_cash_paid_amount')
-    const monthlyByMonth = new Map(monthlyTotals.map((row) => [rowString(row, 'month'), row]))
-    const categoryByMonth = new Map(monthlyCategoryTotals.map((row) => [rowString(row, 'month'), row]))
-    return { month: value, expenseCashPaidAmount, incomeCashPaidAmount: rowNumber(totals, 'income_cash_paid_amount'), previousExpenseCashPaidAmount, expenseChangeAmount: expenseCashPaidAmount - previousExpenseCashPaidAmount,
-      assetTotalAmount: rowNumber(assetTotals, 'total_amount'), assetActiveTotalAmount: rowNumber(assetTotals, 'active_total_amount'),
-      categories: categoryRows.map((row): LedgerCategorySummary => ({ ...categoryFromRow(row), cashPaidAmount: rowNumber(row, 'cash_paid_amount'), transactionCount: rowNumber(row, 'transaction_count') })),
-      trend: trendRows.map((row) => ({ date: rowString(row, 'date'), cashPaidAmount: rowNumber(row, 'cash_paid_amount') })),
-      monthlyTrend: trendMonths.map((trendMonth) => {
-        const total = monthlyByMonth.get(trendMonth) ?? {}; const category = categoryByMonth.get(trendMonth) ?? {}
-        return { month: trendMonth, incomeCashPaidAmount: rowNumber(total, 'income_cash_paid_amount'), expenseCashPaidAmount: rowNumber(total, 'expense_cash_paid_amount'), fixedExpenseCashPaidAmount: rowNumber(category, 'fixed_expense_cash_paid_amount'), utilityCashPaidAmount: rowNumber(category, 'utility_cash_paid_amount') }
-      }), }
+    const [transactionRows, categoryRows, itemRows, accountRows] = await Promise.all([
+      rows(this.db, 'SELECT id, type, occurred_at, cash_paid_amount FROM ledger_transaction WHERE user_id = ? AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at, id', [this.userId, trendStart, bounds.to]),
+      rows(this.db, 'SELECT id, name, color, icon, is_default, created_at, updated_at FROM ledger_category WHERE user_id = ?', [this.userId]),
+      rows(this.db, `SELECT t.id AS transaction_id, t.occurred_at, i.category_id, i.paid_amount, c.name AS category_name FROM ledger_transaction AS t INNER JOIN ledger_transaction_item AS i ON i.transaction_id = t.id INNER JOIN ledger_category AS c ON c.id = i.category_id WHERE t.user_id = ? AND t.type = 'expense' AND t.occurred_at >= ? AND t.occurred_at < ? ORDER BY t.occurred_at, t.id, i.sort_order`, [this.userId, trendStart, bounds.to]),
+      rows(this.db, 'SELECT balance_amount, is_archived FROM asset_account WHERE user_id = ?', [this.userId]),
+    ])
+    type MonthlyTotal = { incomeCashPaidAmount: number; expenseCashPaidAmount: number; fixedExpenseCashPaidAmount: number; utilityCashPaidAmount: number }
+    const monthly = new Map<string, MonthlyTotal>(trendMonths.map((trendMonth) => [trendMonth, { incomeCashPaidAmount: 0, expenseCashPaidAmount: 0, fixedExpenseCashPaidAmount: 0, utilityCashPaidAmount: 0 }]))
+    const daily = new Map<string, number>(); let expenseCashPaidAmount = 0; let incomeCashPaidAmount = 0; let previousExpenseCashPaidAmount = 0
+    for (const transaction of transactionRows) {
+      const occurredAt = rowString(transaction, 'occurred_at'); const amount = aggregateInteger(transaction.cash_paid_amount, '明細集計額'); const type = rowString(transaction, 'type'); const monthlyTotal = monthly.get(occurredAt.slice(0, 7))
+      if (monthlyTotal) {
+        if (type === 'expense') monthlyTotal.expenseCashPaidAmount = addAggregate(monthlyTotal.expenseCashPaidAmount, amount, '月別支出')
+        else monthlyTotal.incomeCashPaidAmount = addAggregate(monthlyTotal.incomeCashPaidAmount, amount, '月別収入')
+      }
+      if (occurredAt >= bounds.from && occurredAt < bounds.to) {
+        if (type === 'expense') { expenseCashPaidAmount = addAggregate(expenseCashPaidAmount, amount, '支出合計'); daily.set(occurredAt, addAggregate(daily.get(occurredAt) ?? 0, amount, '日別支出')) }
+        else incomeCashPaidAmount = addAggregate(incomeCashPaidAmount, amount, '収入合計')
+      }
+      if (type === 'expense' && occurredAt >= previous.from && occurredAt < previous.to) previousExpenseCashPaidAmount = addAggregate(previousExpenseCashPaidAmount, amount, '前月支出')
+    }
+    const categories = new Map(categoryRows.map((row) => [rowString(row, 'id'), { category: categoryFromRow(row), cashPaidAmount: 0, transactionIds: new Set<string>() }]))
+    for (const item of itemRows) {
+      const occurredAt = rowString(item, 'occurred_at'); const itemAmount = aggregateInteger(item.paid_amount, 'カテゴリ集計額'); const monthlyTotal = monthly.get(occurredAt.slice(0, 7))
+      if (monthlyTotal) {
+        const name = rowString(item, 'category_name')
+        if (['住居費', '通信費', 'サブスク', '保険'].includes(name)) monthlyTotal.fixedExpenseCashPaidAmount = addAggregate(monthlyTotal.fixedExpenseCashPaidAmount, itemAmount, '固定費集計')
+        if (name === '光熱費') monthlyTotal.utilityCashPaidAmount = addAggregate(monthlyTotal.utilityCashPaidAmount, itemAmount, '光熱費集計')
+      }
+      if (occurredAt >= bounds.from && occurredAt < bounds.to) {
+        const category = categories.get(rowString(item, 'category_id'))
+        if (category) { category.cashPaidAmount = addAggregate(category.cashPaidAmount, itemAmount, 'カテゴリ集計'); category.transactionIds.add(rowString(item, 'transaction_id')) }
+      }
+    }
+    let assetTotalAmount = 0; let assetActiveTotalAmount = 0
+    for (const account of accountRows) {
+      const balance = aggregateInteger(account.balance_amount, '資産合計')
+      assetTotalAmount = addAggregate(assetTotalAmount, balance, '資産合計')
+      if (!rowNumber(account, 'is_archived')) assetActiveTotalAmount = addAggregate(assetActiveTotalAmount, balance, '有効資産合計')
+    }
+    const categorySummary = [...categories.values()].map(({ category, cashPaidAmount, transactionIds }): LedgerCategorySummary => ({ ...category, cashPaidAmount, transactionCount: transactionIds.size })).sort((left, right) => left.cashPaidAmount === right.cashPaidAmount ? left.createdAt - right.createdAt : left.cashPaidAmount > right.cashPaidAmount ? -1 : 1)
+    return { month: value, expenseCashPaidAmount, incomeCashPaidAmount, previousExpenseCashPaidAmount, expenseChangeAmount: addAggregate(expenseCashPaidAmount, -previousExpenseCashPaidAmount, '支出増減'), assetTotalAmount, assetActiveTotalAmount,
+      categories: categorySummary, trend: [...daily.entries()].map(([date, cashPaidAmount]) => ({ date, cashPaidAmount })),
+      monthlyTrend: trendMonths.map((trendMonth) => ({ month: trendMonth, ...(monthly.get(trendMonth)!) })), }
   }
 
   private async getCategory(categoryId: string) {
@@ -319,7 +368,11 @@ export class LedgerService {
     const accountId = input.accountId == null ? null : text(input.accountId, '口座ID', 100)
     const giftAccountId = input.giftAccountId == null ? null : text(input.giftAccountId, 'ギフト券口座ID', 100)
     if (!Array.isArray(input.items)) throw new LedgerError('INVALID_INPUT', '明細を 1 件以上指定してください。')
-    const items = input.items.map((item) => ({ id: item.id, name: text(item.name, '品名', 200), categoryId: text(item.categoryId, 'カテゴリID', 100), originalAmount: item.originalAmount, discountAmount: item.discountAmount ?? 0 }))
+    const items = input.items.map((item) => {
+      const utilityKind = item.utilityKind == null ? null : item.utilityKind
+      if (utilityKind !== null && utilityKind !== 'electricity' && utilityKind !== 'gas' && utilityKind !== 'water' && utilityKind !== 'other') throw new LedgerError('INVALID_UTILITY_KIND', '光熱費の内訳が不正です。')
+      return { id: item.id, name: text(item.name, '品名', 200), categoryId: text(item.categoryId, 'カテゴリID', 100), originalAmount: item.originalAmount, discountAmount: item.discountAmount ?? 0, utilityKind }
+    })
     if (input.type === 'income') {
       if (receiptId || giftAccountId || items.some((item) => item.discountAmount > 0) || (input.receiptDiscountAmount ?? 0) > 0 || (input.pointUsedAmount ?? 0) > 0 || (input.giftCertificateUsedAmount ?? 0) > 0) {
         throw new LedgerError('INVALID_INCOME', '収入にはレシート、値引き、ポイント、商品券を指定できません。')
@@ -375,6 +428,6 @@ export class LedgerService {
   }
 
   private itemInsertStatements(transactionId: string, input: ReturnType<LedgerService['validateInput']>, conditionalSql?: string, conditionalTail: SqlValue[] = []) {
-    return input.calculation.items.map((item, sortOrder) => statement(this.db, conditionalSql ?? 'INSERT INTO ledger_transaction_item (id, transaction_id, category_id, name, original_amount, item_discount_amount, allocated_receipt_discount_amount, final_amount, allocated_point_amount, allocated_gift_certificate_amount, paid_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [item.id || id(), transactionId, item.categoryId, item.name, item.originalAmount, item.itemDiscount, item.allocatedDiscount, item.finalAmount, item.allocatedPointAmount, item.allocatedGiftCertificateAmount, item.paidAmount, sortOrder, ...conditionalTail]))
+    return input.calculation.items.map((item, sortOrder) => statement(this.db, conditionalSql ?? 'INSERT INTO ledger_transaction_item (id, transaction_id, category_id, name, original_amount, item_discount_amount, allocated_receipt_discount_amount, final_amount, allocated_point_amount, allocated_gift_certificate_amount, paid_amount, utility_kind, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [item.id || id(), transactionId, item.categoryId, item.name, item.originalAmount, item.itemDiscount, item.allocatedDiscount, item.finalAmount, item.allocatedPointAmount, item.allocatedGiftCertificateAmount, item.paidAmount, input.items[sortOrder]!.utilityKind, sortOrder, ...conditionalTail]))
   }
 }

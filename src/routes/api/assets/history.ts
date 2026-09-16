@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
+import { assetHistoryRange } from '../../../lib/jst-date'
 import { errorResponse, requireAssets } from '../../../server/assets/http'
 
 export const Route = createFileRoute('/api/assets/history')({
@@ -7,7 +8,8 @@ export const Route = createFileRoute('/api/assets/history')({
     GET: async ({ request }) => {
       const assets = await requireAssets(request); if (assets instanceof Response) return assets
       const search = new URL(request.url).searchParams
-      try { return Response.json({ history: await assets.balanceHistory({ from: search.get('from'), to: search.get('to') }) }) } catch (error) { return errorResponse(error) }
+      const fallback = !search.has('from') && !search.has('to') ? assetHistoryRange() : undefined
+      try { return Response.json(await assets.balanceHistory({ from: search.get('from') ?? fallback?.from, to: search.get('to') ?? fallback?.to })) } catch (error) { return errorResponse(error) }
     },
   } },
 })

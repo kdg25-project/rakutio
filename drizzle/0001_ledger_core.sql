@@ -62,16 +62,16 @@ CREATE TRIGGER `ledger_transaction_receipt_insert_guard`
 BEFORE INSERT ON `ledger_transaction`
 WHEN NEW.`receipt_id` IS NOT NULL
 BEGIN
-	SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'receipt owner mismatch') END;
-	SELECT CASE WHEN EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `analysis_status` = 'deleting') THEN RAISE(ABORT, 'receipt is deleting') END;
+	SELECT (CASE WHEN NOT EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'receipt owner mismatch') END);
+	SELECT (CASE WHEN EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `analysis_status` = 'deleting') THEN RAISE(ABORT, 'receipt is deleting') END);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `ledger_transaction_receipt_update_guard`
 BEFORE UPDATE OF `receipt_id` ON `ledger_transaction`
 WHEN NEW.`receipt_id` IS NOT NULL
 BEGIN
-	SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'receipt owner mismatch') END;
-	SELECT CASE WHEN EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `analysis_status` = 'deleting') THEN RAISE(ABORT, 'receipt is deleting') END;
+	SELECT (CASE WHEN NOT EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'receipt owner mismatch') END);
+	SELECT (CASE WHEN EXISTS (SELECT 1 FROM `receipt` WHERE `id` = NEW.`receipt_id` AND `analysis_status` = 'deleting') THEN RAISE(ABORT, 'receipt is deleting') END);
 END;
 --> statement-breakpoint
 CREATE TABLE `ledger_transaction_item` (

@@ -1,0 +1,1081 @@
+.ha-screen {
+  color: #1c2520;
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 20px 16px 110px;
+}
+.ha-screen h1 {
+  font-size: 23px;
+  margin: 0;
+}
+.ha-title-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+.ha-filter-button {
+  background: #e9ece8;
+  border: 0;
+  border-radius: 999px;
+  color: #4f675b;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+.ha-history-tabs,
+.ha-analysis-tabs {
+  background: #e7e7e2;
+  border-radius: 999px;
+  display: grid;
+  gap: 3px;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  margin-bottom: 10px;
+  padding: 3px;
+}
+.ha-history-tabs button,
+.ha-analysis-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: #777973;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 32px;
+}
+.ha-history-tabs button.active,
+.ha-analysis-tabs button.active {
+  background: #718979;
+  color: #fff;
+}
+.ha-analysis-tabs {
+  border-radius: 3px;
+  gap: 0;
+  padding: 0;
+}
+.ha-analysis-tabs button {
+  border-radius: 2px;
+  min-height: 28px;
+}
+.ha-analysis-tabs button.active {
+  background: #898b85;
+}
+.ha-period-tabs {
+  background: #f0f0ec;
+  border-radius: 999px;
+  color: #83847f;
+  display: flex;
+  font-size: 11px;
+  justify-content: space-around;
+  margin: 8px 0 11px;
+  padding: 5px;
+}
+.ha-period-tabs span {
+  border-radius: 999px;
+  padding: 4px 15px;
+}
+.ha-period-tabs .active {
+  background: #8aa193;
+  color: #fff;
+  font-weight: 700;
+}
+.ha-month-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0 12px;
+}
+.ha-month-row button {
+  background: transparent;
+  border: 0;
+  color: #77877d;
+  font-size: 28px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+.ha-month-row strong {
+  font-size: 14px;
+}
+.ha-filter-panel {
+  display: none;
+  background: #fff;
+  border: 1px solid #e9e9e4;
+  border-radius: 13px;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 13px;
+}
+.ha-filter-panel[data-open] {
+  display: grid;
+}
+.ha-filter-panel label {
+  color: #657168;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 4px;
+}
+.ha-filter-panel input,
+.ha-filter-panel select {
+  background: #fcfcfa;
+  border: 1px solid #deded8;
+  border-radius: 7px;
+  color: #27332c;
+  min-height: 35px;
+  padding: 6px 8px;
+  width: 100%;
+}
+.ha-filter-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+.ha-filter-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.ha-filter-actions button {
+  border: 0;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+.ha-filter-actions button:first-child {
+  background: #eef0ec;
+  color: #54655b;
+}
+.ha-filter-actions button:last-child {
+  background: #718979;
+  color: #fff;
+}
+.ha-summary-strip {
+  background: #fff;
+  border-radius: 11px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 14px;
+  padding: 13px 7px;
+}
+.ha-summary-strip span {
+  border-right: 1px solid #ecece8;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 9px;
+}
+.ha-summary-strip span:last-child {
+  border-right: 0;
+}
+.ha-summary-strip span {
+  color: #747a73;
+  font-size: 11px;
+}
+.ha-summary-strip b {
+  color: #26342e;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ha-summary-strip b.income,
+.ha-transaction-row strong.income {
+  color: #637e6d;
+}
+.ha-summary-strip b.expense,
+.ha-transaction-row strong.expense {
+  color: #ad6870;
+}
+.ha-transaction-list {
+  background: #fff;
+  border-radius: 13px;
+  overflow: hidden;
+}
+.ha-date-heading {
+  background: #f7f7f3;
+  border-bottom: 1px solid #ecece7;
+  color: #777a74;
+  font-size: 12px;
+  margin: 0;
+  padding: 9px 13px;
+}
+.ha-transaction-row {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #eeeee9;
+  display: flex;
+  gap: 10px;
+  padding: 11px 12px;
+  text-align: left;
+  width: 100%;
+}
+.ha-transaction-row:hover {
+  background: #fafbf8;
+}
+.ha-category-icon {
+  align-items: center;
+  border-radius: 50%;
+  display: flex;
+  flex: 0 0 auto;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+.ha-category-icon img {
+  height: 18px;
+  width: 18px;
+}
+.ha-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.ha-row-text b {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ha-row-text small {
+  color: #868982;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ha-transaction-row strong {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ha-chevron {
+  color: #959a93;
+  font-size: 20px;
+}
+.ha-loading {
+  align-items: center;
+  color: #737a73;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  justify-content: center;
+  margin: 26px 0;
+}
+.ha-loading i {
+  animation: ha-spin 0.8s linear infinite;
+  border: 2px solid #d5d8d3;
+  border-radius: 50%;
+  border-right-color: #718979;
+  height: 16px;
+  width: 16px;
+}
+@keyframes ha-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ha-error {
+  align-items: center;
+  background: #fff0ef;
+  border-radius: 9px;
+  color: #9b4a51;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  justify-content: space-between;
+  margin: 10px 0;
+  padding: 10px 12px;
+}
+.ha-error button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.ha-empty {
+  align-items: center;
+  background: #fff;
+  border-radius: 13px;
+  color: #757a74;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  gap: 5px;
+  justify-content: center;
+  min-height: 140px;
+  padding: 18px;
+  text-align: center;
+}
+.ha-empty img {
+  height: 28px;
+  opacity: 0.5;
+  width: 28px;
+}
+.ha-empty p {
+  margin: 0;
+}
+.ha-empty small {
+  font-size: 11px;
+}
+.ha-more {
+  background: #e8eee9;
+  border: 0;
+  border-radius: 999px;
+  color: #5a7161;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 16px auto 0;
+  padding: 10px 18px;
+}
+.ha-income-expense {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 1fr 1fr;
+  margin: 11px 0;
+}
+.ha-income-expense button {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-radius: 12px;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: 34px 1fr auto;
+  min-height: 69px;
+  padding: 10px;
+  text-align: left;
+}
+.ha-income-expense span {
+  align-items: center;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  font-size: 18px;
+  grid-row: span 2;
+  height: 31px;
+  justify-content: center;
+  width: 31px;
+}
+.ha-income-expense span.income {
+  background: #829b8c;
+}
+.ha-income-expense span.expense {
+  background: #c4878d;
+}
+.ha-income-expense small {
+  color: #747a73;
+  font-size: 11px;
+}
+.ha-income-expense b {
+  font-size: 14px;
+}
+.ha-income-expense i {
+  color: #98a097;
+  font-size: 19px;
+  font-style: normal;
+  grid-column: 3;
+  grid-row: span 2;
+}
+.ha-card {
+  background: #fff;
+  border-radius: 10px;
+  margin-top: 12px;
+  padding: 14px;
+}
+.ha-card-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ha-card-head h2 {
+  font-size: 14px;
+  margin: 0;
+}
+.ha-card-head span {
+  color: #858981;
+  font-size: 10px;
+}
+.ha-card-head button {
+  background: transparent;
+  border: 0;
+  color: #708879;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px;
+}
+.ha-income-chart {
+  align-items: end;
+  background: linear-gradient(#fff, #fcfcfa);
+  display: flex;
+  height: 137px;
+  justify-content: space-around;
+  padding: 2px 5px 0;
+  position: relative;
+}
+.ha-chart-lines {
+  bottom: 21px;
+  display: flex;
+  flex-direction: column;
+  height: 104px;
+  justify-content: space-between;
+  left: 0;
+  position: absolute;
+  right: 0;
+}
+.ha-chart-lines i {
+  border-top: 1px solid #ecece8;
+}
+.ha-chart-net-line {
+  bottom: 20px;
+  height: 104px;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  width: 100%;
+  z-index: 2;
+}
+.ha-chart-net-line polyline {
+  fill: none;
+  stroke: #333a35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.3;
+}
+.ha-chart-net-line circle {
+  fill: #333a35;
+}
+.ha-month-bars {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: end;
+  position: relative;
+  width: 12%;
+}
+.ha-month-bars > div {
+  align-items: end;
+  display: flex;
+  gap: 3px;
+  height: 105px;
+  position: relative;
+  width: 100%;
+}
+.ha-month-bars i {
+  border-radius: 3px 3px 0 0;
+  bottom: 0;
+  display: block;
+  max-width: 17px;
+  position: absolute;
+  width: 40%;
+}
+.ha-month-bars i.income {
+  background: #8ea89a;
+  left: 7%;
+}
+.ha-month-bars i.expense {
+  background: #e2e3df;
+  right: 7%;
+}
+.ha-month-bars span {
+  color: #7e837b;
+  font-size: 10px;
+  margin-top: 6px;
+}
+.ha-chart-legend {
+  color: #7e837c;
+  display: flex;
+  font-size: 9px;
+  gap: 11px;
+  justify-content: center;
+  margin: 8px 0 0;
+}
+.ha-chart-legend span {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+.ha-chart-legend i {
+  border-radius: 50%;
+  height: 6px;
+  width: 6px;
+}
+.ha-single-chart {
+  align-items: end;
+  border-bottom: 1px solid #ecece7;
+  display: flex;
+  gap: 10px;
+  height: 128px;
+  justify-content: space-around;
+  padding: 0 8px;
+}
+.ha-single-chart > div {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  justify-content: end;
+  max-width: 32px;
+}
+.ha-single-chart i {
+  border-radius: 3px 3px 0 0;
+  display: block;
+  max-width: 25px;
+  width: 78%;
+}
+.ha-single-chart span {
+  color: #7e837c;
+  font-size: 9px;
+  margin-top: 5px;
+  white-space: nowrap;
+}
+.ha-utility-chart {
+  align-items: end;
+  border-bottom: 1px solid #ecece7;
+  display: flex;
+  gap: 10px;
+  height: 128px;
+  justify-content: space-around;
+  padding: 0 8px;
+}
+.ha-utility-chart > div {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  justify-content: end;
+  max-width: 32px;
+}
+.ha-utility-chart > div > span {
+  display: flex;
+  flex-direction: column-reverse;
+  height: 104px;
+  justify-content: end;
+  width: 78%;
+}
+.ha-utility-chart i {
+  display: block;
+  min-height: 0;
+  width: 100%;
+}
+.ha-utility-chart i:first-child {
+  border-radius: 3px 3px 0 0;
+}
+.ha-utility-chart small {
+  color: #7e837c;
+  font-size: 9px;
+  margin-top: 5px;
+}
+.ha-category-chart {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+}
+.ha-donut {
+  align-items: center;
+  border-radius: 50%;
+  display: flex;
+  flex: 0 0 auto;
+  height: 126px;
+  justify-content: center;
+  width: 126px;
+}
+.ha-donut > div {
+  align-items: center;
+  background: #fff;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  height: 74px;
+  justify-content: center;
+  text-align: center;
+  width: 74px;
+}
+.ha-donut small {
+  color: #757a73;
+  font-size: 9px;
+}
+.ha-donut b {
+  font-size: 13px;
+}
+.ha-category-chart ul {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ha-category-chart li button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  display: grid;
+  font-size: 10px;
+  gap: 5px;
+  grid-template-columns: 8px 1fr auto auto;
+  padding: 1px 0;
+  text-align: left;
+  width: 100%;
+}
+.ha-category-chart li button > span {
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+.ha-category-chart li b {
+  font-size: 11px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ha-category-chart li small {
+  color: #7b8079;
+  font-size: 9px;
+}
+.ha-category-chart li strong {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.ha-split-analysis {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+}
+.ha-split-analysis button {
+  background: #eaf0eb;
+  border: 0;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px;
+  text-align: left;
+}
+.ha-split-analysis button:last-child {
+  background: #f1e9e8;
+}
+.ha-split-analysis small {
+  color: #68766d;
+  font-size: 11px;
+}
+.ha-split-analysis b {
+  font-size: 17px;
+}
+.ha-split-analysis span {
+  color: #718579;
+  font-size: 10px;
+}
+.ha-daily-chart {
+  align-items: end;
+  border-bottom: 1px solid #e9e9e5;
+  display: flex;
+  gap: 4px;
+  height: 105px;
+  overflow: auto;
+  padding: 0 2px;
+}
+.ha-daily-chart > div {
+  align-items: center;
+  display: flex;
+  flex: 0 0 17px;
+  flex-direction: column;
+  height: 100%;
+  justify-content: end;
+}
+.ha-daily-chart i {
+  background: #95aa9e;
+  border-radius: 3px 3px 0 0;
+  display: block;
+  width: 10px;
+}
+.ha-daily-chart span {
+  color: #858981;
+  font-size: 8px;
+  margin-top: 4px;
+}
+.ha-dialog-backdrop {
+  align-items: end;
+  background: #1e282155;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 30;
+}
+.ha-dialog {
+  background: #f8f8f5;
+  border-radius: 19px 19px 0 0;
+  max-height: 82vh;
+  max-width: 720px;
+  overflow: auto;
+  padding: 18px 16px 28px;
+  width: 100%;
+}
+.ha-dialog > header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ha-dialog h2 {
+  font-size: 17px;
+  margin: 0;
+}
+.ha-dialog > header button {
+  background: #e5e7e2;
+  border: 0;
+  border-radius: 50%;
+  font-size: 20px;
+  height: 30px;
+  width: 30px;
+}
+
+.ha-period-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: #83847f;
+  font-size: 11px;
+  padding: 4px 15px;
+}
+
+.ha-period-tabs button.active {
+  background: #8aa193;
+  color: #fff;
+  font-weight: 700;
+}
+
+.ha-custom-range {
+  background: #fff;
+  border-radius: 11px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin: 8px 0 11px;
+  padding: 10px;
+}
+
+.ha-custom-range label {
+  color: #68736b;
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 700;
+  gap: 4px;
+}
+
+.ha-custom-range input {
+  border: 1px solid #deded8;
+  border-radius: 7px;
+  min-height: 34px;
+  padding: 5px;
+  width: 100%;
+}
+
+.ha-transaction-row strong {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+}
+
+.ha-transaction-row strong small {
+  color: #8a8e88;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.ha-comparison {
+  color: #767d76;
+  font-size: 11px;
+  margin: 0 0 10px;
+  text-align: right;
+}
+
+.ha-comparison b.income {
+  color: #637e6d;
+}
+.ha-comparison b.expense {
+  color: #ad6870;
+}
+
+.ha-asset-total,
+.ha-detail-total {
+  background: #fff;
+  border-bottom: 1px solid #e8e9e4;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 12px 0;
+  padding: 17px;
+}
+
+.ha-asset-total small,
+.ha-detail-total small,
+.ha-asset-total span,
+.ha-detail-total span {
+  color: #6e786f;
+  font-size: 11px;
+}
+
+.ha-asset-total b,
+.ha-detail-total b {
+  font-size: 29px;
+}
+
+.ha-asset-breakdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ha-asset-current-note {
+  color: #7e847d;
+  font-size: 10px;
+  line-height: 1.5;
+  margin: -4px 0 8px;
+}
+.ha-asset-breakdown li {
+  align-items: center;
+  border-top: 1px solid #efefe9;
+  display: grid;
+  gap: 2px 9px;
+  grid-template-columns: 33px 1fr auto;
+  padding: 10px 0;
+}
+.ha-asset-account-icon {
+  align-items: center;
+  background: #e9efea;
+  border-radius: 50%;
+  display: flex;
+  grid-row: span 2;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+.ha-asset-account-icon.cash {
+  background: #ece9de;
+}
+.ha-asset-account-icon.gift {
+  background: #eee7ef;
+}
+.ha-asset-account-icon img {
+  height: 16px;
+  width: 16px;
+}
+.ha-asset-breakdown li b {
+  font-size: 12px;
+}
+.ha-asset-breakdown li small {
+  color: #80867e;
+  font-size: 10px;
+}
+.ha-asset-breakdown li strong {
+  font-size: 13px;
+  grid-column: 3;
+  grid-row: span 2;
+}
+
+.ha-detail-page {
+  background: #f8f8f5;
+  min-height: calc(100vh - 56px);
+}
+.ha-detail-page-header {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 38px 1fr 38px;
+  margin: -3px 0 8px;
+  text-align: center;
+}
+.ha-detail-page-header h1 {
+  font-size: 17px;
+}
+.ha-detail-page-header button {
+  background: transparent;
+  border: 0;
+  color: #53675a;
+  font-size: 30px;
+  line-height: 1;
+  padding: 0;
+}
+.ha-target-progress,
+.ha-target-note {
+  background: #fff;
+  border-radius: 11px;
+  margin: 12px 0;
+  padding: 12px 13px;
+}
+.ha-target-progress > div {
+  align-items: baseline;
+  display: flex;
+  gap: 7px;
+}
+.ha-target-progress span,
+.ha-target-note {
+  color: #707971;
+  font-size: 11px;
+}
+.ha-target-progress b {
+  font-size: 13px;
+}
+.ha-target-progress small {
+  color: #738b7c;
+  font-size: 11px;
+  margin-left: auto;
+}
+.ha-target-progress > i {
+  background: #e9ece8;
+  border-radius: 999px;
+  display: block;
+  height: 6px;
+  margin-top: 9px;
+  overflow: hidden;
+}
+.ha-target-progress > i > span {
+  background: #81998a;
+  display: block;
+  height: 100%;
+}
+.ha-target-note {
+  margin: 12px 0;
+}
+
+.ha-asset-chart {
+  align-items: end;
+  border-bottom: 1px solid #e9e9e5;
+  display: flex;
+  gap: 8px;
+  height: 135px;
+  overflow: auto;
+}
+
+.ha-asset-chart > div {
+  align-items: center;
+  display: flex;
+  flex: 0 0 40px;
+  flex-direction: column;
+  height: 100%;
+  justify-content: end;
+}
+
+.ha-asset-chart i {
+  background: #8ca395;
+  border-radius: 4px 4px 0 0;
+  display: block;
+  width: 22px;
+}
+
+.ha-asset-chart span {
+  color: #858981;
+  font-size: 9px;
+  margin-top: 5px;
+}
+.ha-line-history {
+  overflow: hidden;
+  position: relative;
+}
+.ha-line-history svg {
+  display: block;
+  height: 138px;
+  overflow: visible;
+  width: 100%;
+}
+.ha-line-history polyline {
+  fill: none;
+  stroke: #6f8978;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+}
+.ha-line-history circle {
+  fill: #6f8978;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.ha-line-history > div {
+  display: flex;
+  justify-content: space-between;
+  margin: -4px 3px 0;
+  overflow: hidden;
+}
+.ha-line-history > div span {
+  color: #858981;
+  flex: 0 0 auto;
+  font-size: 9px;
+}
+
+.ha-utility-breakdown {
+  background: #fff;
+  border-radius: 12px;
+  margin: 12px 0;
+  padding: 14px;
+}
+
+.ha-utility-breakdown h3,
+.ha-detail-list-title {
+  font-size: 14px;
+  margin: 0 0 9px;
+}
+
+.ha-utility-breakdown div {
+  border-top: 1px solid #edede8;
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 0;
+}
+
+.ha-utility-breakdown span {
+  color: #747b74;
+  font-size: 12px;
+}
+.ha-utility-breakdown b {
+  font-size: 13px;
+}
+.ha-detail-list-title {
+  margin: 18px 2px 8px;
+}
+@media (min-width: 700px) {
+  .ha-screen {
+    padding-top: 28px;
+  }
+  .ha-filter-panel[data-open] {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .ha-filter-panel .ha-filter-grid {
+    grid-column: span 1;
+  }
+  .ha-filter-actions {
+    align-items: end;
+  }
+  .ha-card {
+    padding: 18px;
+  }
+  .ha-dialog-backdrop {
+    align-items: center;
+  }
+  .ha-dialog {
+    border-radius: 18px;
+    max-width: 560px;
+  }
+  .ha-income-chart {
+    height: 165px;
+  }
+  .ha-month-bars > div {
+    height: 130px;
+  }
+  .ha-chart-lines {
+    height: 130px;
+  }
+}

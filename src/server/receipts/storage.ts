@@ -44,7 +44,7 @@ export type ReceiptBucket = {
 
 export class ReceiptStorageError extends Error {
   constructor(
-    readonly code: 'RECEIPT_STORAGE_UNAVAILABLE' | 'RECEIPT_NOT_FOUND' | 'RECEIPT_ATTACHED',
+    readonly code: 'RECEIPT_STORAGE_UNAVAILABLE' | 'RECEIPT_NOT_FOUND' | 'RECEIPT_ATTACHED' | 'RECEIPT_ANALYSIS_IN_PROGRESS' | 'RECEIPT_NOT_RETRYABLE',
     message: string,
     readonly receiptId?: string,
   ) {
@@ -122,10 +122,16 @@ export async function createReceiptDraft(input: {
 export async function markReceiptAnalyzed(db: D1Database, userId: string, id: string, analysis: ReceiptExtraction, now = Date.now()) {
   try {
     const result = await db.prepare(
-      `UPDATE ${RECEIPT_TABLE} SET analysis_status = 'analyzed', analysis_json = ?, analyzed_at = ? WHERE id = ? AND user_id = ? AND analysis_status != 'deleting'`,
-    ).bind(JSON.stringify(analysis), now, id, userId).run()
-    if (result.meta.changes !== 1) throw new Error('receipt not found')
-  } catch {
+      `UPDATE ${RECEIPT_TABLE} SET analysis_status = 'analyzed', analysis_json = ?, analyzed_at = ? WHERE id = ? AND user_id = ? AND analysis_status = 'pending' AND NOT EXISTS (SELECT 1 FROM ${TRANSACTION_TABLE} WHERE user_id = ? AND receipt_id = ?)`,
+    ).bind(JSON.stringify(analysis), now, id, userId, userId, id).run()
+    if (result.meta.changes === 1) return
+    const latest = await findOwnedReceipt(db, userId, id, true)
+    if (latest?.analysisStatus === 'deleting' || !latest) throw new ReceiptStorageError('RECEIPT_NOT_FOUND', 'レシートが見つかりません。')
+    const attached = await db.prepare(`SELECT id FROM ${TRANSACTION_TABLE} WHERE user_id = ? AND receipt_id = ?`).bind(userId, id).first()
+    if (attached) throw new ReceiptStorageError('RECEIPT_ATTACHED', '取引に紐づいたレシートは再解析できません。', id)
+    throw new Error('receipt was not pending')
+  } catch (error) {
+    if (error instanceof ReceiptStorageError) throw error
     throw new ReceiptStorageError('RECEIPT_STORAGE_UNAVAILABLE', 'OCR結果を保存できませんでした。')
   }
 }
@@ -133,11 +139,54 @@ export async function markReceiptAnalyzed(db: D1Database, userId: string, id: st
 export async function markReceiptFailed(db: D1Database, userId: string, id: string, now = Date.now()) {
   try {
     await db.prepare(
-      `UPDATE ${RECEIPT_TABLE} SET analysis_status = 'failed', analyzed_at = ? WHERE id = ? AND user_id = ? AND analysis_status != 'deleting'`,
-    ).bind(now, id, userId).run()
+      `UPDATE ${RECEIPT_TABLE} SET analysis_status = 'failed', analyzed_at = ? WHERE id = ? AND user_id = ? AND analysis_status = 'pending' AND NOT EXISTS (SELECT 1 FROM ${TRANSACTION_TABLE} WHERE user_id = ? AND receipt_id = ?)`,
+    ).bind(now, id, userId, userId, id).run()
   } catch {
     // The original draft remains available for manual entry even if its status
     // cannot be updated due to a transient D1 failure.
+  }
+}
+
+/**
+ * Atomically claims a failed draft for one OCR retry. Pending means another
+ * request is already processing it, and deleting remains an unrecoverable
+ * tombstone. No R2 write occurs during a retry.
+ */
+export async function beginReceiptRetry(db: D1Database, userId: string, id: string) {
+  const row = await findOwnedReceipt(db, userId, id, true)
+  if (!row || row.analysisStatus === 'deleting') throw new ReceiptStorageError('RECEIPT_NOT_FOUND', 'レシートが見つかりません。')
+
+  try {
+    const result = await db.prepare(
+      `UPDATE ${RECEIPT_TABLE} SET analysis_status = 'pending', analysis_json = NULL, analyzed_at = NULL WHERE id = ? AND user_id = ? AND analysis_status = 'failed' AND NOT EXISTS (SELECT 1 FROM ${TRANSACTION_TABLE} WHERE user_id = ? AND receipt_id = ?)`,
+    ).bind(id, userId, userId, id).run()
+    if (result.meta.changes === 1) return { id: row.id, objectKey: row.objectKey, mimeType: row.mimeType }
+  } catch {
+    throw new ReceiptStorageError('RECEIPT_STORAGE_UNAVAILABLE', '再解析の準備に失敗しました。時間をおいて再試行してください。', id)
+  }
+
+  const latest = await findOwnedReceipt(db, userId, id, true)
+  if (!latest || latest.analysisStatus === 'deleting') throw new ReceiptStorageError('RECEIPT_NOT_FOUND', 'レシートが見つかりません。')
+  const attached = await db.prepare(`SELECT id FROM ${TRANSACTION_TABLE} WHERE user_id = ? AND receipt_id = ?`).bind(userId, id).first()
+  if (attached) throw new ReceiptStorageError('RECEIPT_ATTACHED', '取引に紐づいたレシートは再解析できません。', id)
+  if (latest.analysisStatus === 'pending') throw new ReceiptStorageError('RECEIPT_ANALYSIS_IN_PROGRESS', 'このレシートは解析中です。しばらくしてから確認してください。', id)
+  throw new ReceiptStorageError('RECEIPT_NOT_RETRYABLE', 'このレシートは再解析できません。', id)
+}
+
+/** Loads a claimed draft only while it remains eligible, then reconstructs a private File for Document AI. */
+export async function loadReceiptRetryImage(db: D1Database, bucket: ReceiptBucket, userId: string, id: string) {
+  const row = await findOwnedReceipt(db, userId, id)
+  if (!row || row.analysisStatus !== 'pending') throw new ReceiptStorageError('RECEIPT_NOT_FOUND', 'レシートが見つかりません。')
+  const attached = await db.prepare(`SELECT id FROM ${TRANSACTION_TABLE} WHERE user_id = ? AND receipt_id = ?`).bind(userId, id).first()
+  if (attached) throw new ReceiptStorageError('RECEIPT_ATTACHED', '取引に紐づいたレシートは再解析できません。', id)
+  try {
+    const object = await bucket.get(row.objectKey)
+    if (!object) throw new ReceiptStorageError('RECEIPT_NOT_FOUND', 'レシート画像が見つかりません。', id)
+    const bytes = await new Response(object.body).arrayBuffer()
+    return new File([bytes], `receipt-${row.id}`, { type: row.mimeType })
+  } catch (error) {
+    if (error instanceof ReceiptStorageError) throw error
+    throw new ReceiptStorageError('RECEIPT_STORAGE_UNAVAILABLE', 'レシート画像を取得できませんでした。', id)
   }
 }
 

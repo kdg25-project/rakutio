@@ -25,6 +25,10 @@ export const planningRecurringRule = sqliteTable('planning_recurring_rule', {
   startDate: text('start_date').notNull(),
   endDate: text('end_date'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  /** First month still eligible for generation; only completed months advance it. */
+  nextDueMonth: text('next_due_month').notNull(),
+  /** Fair global queue order. Every selected rule moves to a unique later slot. */
+  lastAttemptedAt: integer('last_attempted_at').notNull().default(0),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [index('planning_recurring_rule_user_active_idx').on(table.userId, table.active)])

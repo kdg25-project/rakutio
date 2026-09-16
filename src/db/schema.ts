@@ -127,6 +127,7 @@ export const ledgerTransactionItem = sqliteTable('ledger_transaction_item', {
   allocatedPointAmount: integer('allocated_point_amount').notNull(),
   allocatedGiftCertificateAmount: integer('allocated_gift_certificate_amount').notNull(),
   paidAmount: integer('paid_amount').notNull(),
+  utilityKind: text('utility_kind', { enum: ['electricity', 'gas', 'water', 'other'] }),
   sortOrder: integer('sort_order').notNull(),
 }, (table) => [
   index('ledger_transaction_item_transaction_idx').on(table.transactionId, table.sortOrder),
@@ -203,6 +204,9 @@ export const planningRecurringRule = sqliteTable('planning_recurring_rule', {
   paymentDay: integer('payment_day').notNull(),
   startDate: text('start_date').notNull(),
   endDate: text('end_date'),
+  // The scheduler advances this durable cursor only after a month is settled.
+  nextDueMonth: text('next_due_month').notNull(),
+  lastAttemptedAt: integer('last_attempted_at').notNull().default(0),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),

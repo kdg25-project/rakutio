@@ -1,4 +1,4 @@
-import { HeadContent, Link, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 
 import appCss from '../styles.css?url'
 
@@ -22,14 +22,7 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body>
-        <header className="site-header">
-          <Link to="/" className="brand">家計簿</Link>
-          <nav aria-label="メインナビゲーション">
-            <Link to="/login">ログイン</Link>
-            <Link to="/signup" className="button small">新規登録</Link>
-          </nav>
-        </header>
-        <main className="page"><Outlet /></main>
+        <div className="page"><Outlet /></div>
         <Scripts />
       </body>
     </html>

@@ -51,10 +51,10 @@ CREATE UNIQUE INDEX `asset_entry_transaction_account_unique` ON `asset_entry` (`
 CREATE TRIGGER `asset_entry_insert_guard`
 BEFORE INSERT ON `asset_entry`
 BEGIN
-	SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0) THEN RAISE(ABORT, 'asset account unavailable') END;
-	SELECT CASE WHEN NEW.`operation_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `asset_operation` WHERE `id` = NEW.`operation_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'asset operation owner mismatch') END;
-	SELECT CASE WHEN NEW.`transaction_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `ledger_transaction` WHERE `id` = NEW.`transaction_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'asset transaction owner mismatch') END;
-	SELECT CASE WHEN (SELECT `type` FROM `asset_account` WHERE `id` = NEW.`account_id`) = 'gift' AND (SELECT `balance_amount` FROM `asset_account` WHERE `id` = NEW.`account_id`) + NEW.`amount` < 0 THEN RAISE(ABORT, 'gift balance insufficient') END;
+	SELECT (CASE WHEN NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0) THEN RAISE(ABORT, 'asset account unavailable') END);
+	SELECT (CASE WHEN NEW.`operation_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `asset_operation` WHERE `id` = NEW.`operation_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'asset operation owner mismatch') END);
+	SELECT (CASE WHEN NEW.`transaction_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `ledger_transaction` WHERE `id` = NEW.`transaction_id` AND `user_id` = NEW.`user_id`) THEN RAISE(ABORT, 'asset transaction owner mismatch') END);
+	SELECT (CASE WHEN (SELECT `type` FROM `asset_account` WHERE `id` = NEW.`account_id`) = 'gift' AND (SELECT `balance_amount` FROM `asset_account` WHERE `id` = NEW.`account_id`) + NEW.`amount` < 0 THEN RAISE(ABORT, 'gift balance insufficient') END);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `asset_entry_balance_apply`
@@ -78,15 +78,15 @@ END;
 CREATE TRIGGER `ledger_transaction_asset_insert_guard`
 BEFORE INSERT ON `ledger_transaction`
 BEGIN
-	SELECT CASE WHEN NEW.`account_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` IN ('bank', 'cash')) THEN RAISE(ABORT, 'cash account unavailable') END;
-	SELECT CASE WHEN NEW.`gift_certificate_used_amount` > 0 AND (NEW.`gift_account_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`gift_account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` = 'gift')) THEN RAISE(ABORT, 'gift account unavailable') END;
-	SELECT CASE WHEN NEW.`gift_certificate_used_amount` = 0 AND NEW.`gift_account_id` IS NOT NULL THEN RAISE(ABORT, 'gift account without gift use') END;
+	SELECT (CASE WHEN NEW.`account_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` IN ('bank', 'cash')) THEN RAISE(ABORT, 'cash account unavailable') END);
+	SELECT (CASE WHEN NEW.`gift_certificate_used_amount` > 0 AND (NEW.`gift_account_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`gift_account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` = 'gift')) THEN RAISE(ABORT, 'gift account unavailable') END);
+	SELECT (CASE WHEN NEW.`gift_certificate_used_amount` = 0 AND NEW.`gift_account_id` IS NOT NULL THEN RAISE(ABORT, 'gift account without gift use') END);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `ledger_transaction_asset_update_guard`
 BEFORE UPDATE OF `account_id`, `gift_account_id`, `gift_certificate_used_amount` ON `ledger_transaction`
 BEGIN
-	SELECT CASE WHEN NEW.`account_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` IN ('bank', 'cash')) THEN RAISE(ABORT, 'cash account unavailable') END;
-	SELECT CASE WHEN NEW.`gift_certificate_used_amount` > 0 AND (NEW.`gift_account_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`gift_account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` = 'gift')) THEN RAISE(ABORT, 'gift account unavailable') END;
-	SELECT CASE WHEN NEW.`gift_certificate_used_amount` = 0 AND NEW.`gift_account_id` IS NOT NULL THEN RAISE(ABORT, 'gift account without gift use') END;
+	SELECT (CASE WHEN NEW.`account_id` IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` IN ('bank', 'cash')) THEN RAISE(ABORT, 'cash account unavailable') END);
+	SELECT (CASE WHEN NEW.`gift_certificate_used_amount` > 0 AND (NEW.`gift_account_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `asset_account` WHERE `id` = NEW.`gift_account_id` AND `user_id` = NEW.`user_id` AND `is_archived` = 0 AND `type` = 'gift')) THEN RAISE(ABORT, 'gift account unavailable') END);
+	SELECT (CASE WHEN NEW.`gift_certificate_used_amount` = 0 AND NEW.`gift_account_id` IS NOT NULL THEN RAISE(ABORT, 'gift account without gift use') END);
 END;

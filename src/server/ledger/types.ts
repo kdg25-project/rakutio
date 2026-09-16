@@ -1,5 +1,6 @@
 /** Public, transport-safe models shared by API handlers and the application UI. */
 export type LedgerTransactionType = 'expense' | 'income'
+export type UtilityKind = 'electricity' | 'gas' | 'water' | 'other'
 
 export type LedgerCategory = {
   id: string
@@ -22,6 +23,7 @@ export type LedgerTransactionItem = {
   allocatedPointAmount: number
   allocatedGiftCertificateAmount: number
   paidAmount: number
+  utilityKind: UtilityKind | null
   sortOrder: number
 }
 
@@ -70,6 +72,7 @@ export type LedgerTransactionInput = {
     name: string
     originalAmount: number
     discountAmount?: number
+    utilityKind?: UtilityKind
   }>
 }
 

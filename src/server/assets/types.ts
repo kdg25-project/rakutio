@@ -30,3 +30,13 @@ export type AssetSummary = {
 }
 
 export type AssetBalanceHistoryPoint = { date: string; deltaAmount: number; balanceAmount: number }
+
+/**
+ * History contains actual movement dates only. Boundary snapshots expose the
+ * carried balance without inventing a zero-value asset entry.
+ */
+export type AssetBalanceHistory = {
+  history: AssetBalanceHistoryPoint[]
+  openingBalanceAmount: number
+  closingBalanceAmount: number
+}

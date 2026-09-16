@@ -42,6 +42,17 @@ npm run cf-typegen
 
 ## D1・R2 とデプロイ
 
+Cloudflare Workers Builds では、Vite/TanStack Start の生成処理を先に完了させる必要があります。Worker の **Settings → Builds** を次のように設定してください。
+
+| 設定 | 値 |
+| --- | --- |
+| Root directory | リポジトリ直下（空欄でも可） |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
+| 非本番ブランチ Deploy command | `npx wrangler versions upload`（既定値） |
+
+`npx wrangler deploy` 単体では TanStack Start が生成するエントリとマニフェストが存在しないため、`#tanstack-router-entry` などを解決できず失敗します。ローカルから一続きで実行する場合だけ、既存の `npm run deploy`（`npm run build && wrangler deploy`）を使えます。Workers Builds の Build command と Deploy command の両方に `npm run deploy` は設定しません。詳細は [デプロイ手順](./docs/deployment.md) を参照してください。
+
 `wrangler.jsonc` の `database_id` は未作成状態のプレースホルダーです。本番用 D1 を作成して表示された ID に置き換えてから、マイグレーションとデプロイを行います。
 
 ```bash

@@ -963,6 +963,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "utility_kind": {
+          "name": "utility_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "integer",
@@ -1174,6 +1181,21 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "next_due_month": {
+          "name": "next_due_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_attempted_at": {
+          "name": "last_attempted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "active": {
           "name": "active",

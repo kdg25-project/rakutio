@@ -17,6 +17,7 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiAssetsHistoryRouteImport } from './routes/api/assets/history'
 import { Route as ApiAssetsTransfersRouteImport } from './routes/api/assets/transfers'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiLedgerAnalyticsRouteImport } from './routes/api/ledger/analytics'
 import { Route as ApiLedgerSummaryRouteImport } from './routes/api/ledger/summary'
 import { Route as ApiOcrReceiptRouteImport } from './routes/api/ocr/receipt'
 import { Route as ApiReceiptsIdRouteImport } from './routes/api/receipts/$id'
@@ -33,6 +34,7 @@ import { Route as ApiPlanningRecurringRulesIndexRouteImport } from './routes/api
 import { Route as ApiPlanningRecurringRulesIdRouteImport } from './routes/api/planning/recurring-rules/$id'
 import { Route as ApiPlanningRecurringRulesRunRouteImport } from './routes/api/planning/recurring-rules/run'
 import { Route as ApiReceiptsIdImageRouteImport } from './routes/api/receipts/$id/image'
+import { Route as ApiReceiptsIdRetryRouteImport } from './routes/api/receipts/$id/retry'
 import { Route as ApiAssetsAccountsIdAdjustmentsRouteImport } from './routes/api/assets/accounts/$id/adjustments'
 import { Route as ApiAssetsAccountsIdEntriesRouteImport } from './routes/api/assets/accounts/$id/entries'
 
@@ -74,6 +76,11 @@ const ApiAssetsTransfersRoute = ApiAssetsTransfersRouteImport.update({
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLedgerAnalyticsRoute = ApiLedgerAnalyticsRouteImport.update({
+  id: '/api/ledger/analytics',
+  path: '/api/ledger/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiLedgerSummaryRoute = ApiLedgerSummaryRouteImport.update({
@@ -164,6 +171,11 @@ const ApiReceiptsIdImageRoute = ApiReceiptsIdImageRouteImport.update({
   path: '/image',
   getParentRoute: () => ApiReceiptsIdRoute,
 } as any)
+const ApiReceiptsIdRetryRoute = ApiReceiptsIdRetryRouteImport.update({
+  id: '/retry',
+  path: '/retry',
+  getParentRoute: () => ApiReceiptsIdRoute,
+} as any)
 const ApiAssetsAccountsIdAdjustmentsRoute =
   ApiAssetsAccountsIdAdjustmentsRouteImport.update({
     id: '/adjustments',
@@ -186,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/api/assets/history': typeof ApiAssetsHistoryRoute
   '/api/assets/transfers': typeof ApiAssetsTransfersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/ledger/analytics': typeof ApiLedgerAnalyticsRoute
   '/api/ledger/summary': typeof ApiLedgerSummaryRoute
   '/api/ocr/receipt': typeof ApiOcrReceiptRoute
   '/api/receipts/$id': typeof ApiReceiptsIdRouteWithChildren
@@ -197,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/api/planning/recurring-rules/$id': typeof ApiPlanningRecurringRulesIdRoute
   '/api/planning/recurring-rules/run': typeof ApiPlanningRecurringRulesRunRoute
   '/api/receipts/$id/image': typeof ApiReceiptsIdImageRoute
+  '/api/receipts/$id/retry': typeof ApiReceiptsIdRetryRoute
   '/api/assets/accounts/': typeof ApiAssetsAccountsIndexRoute
   '/api/ledger/categories/': typeof ApiLedgerCategoriesIndexRoute
   '/api/ledger/transactions/': typeof ApiLedgerTransactionsIndexRoute
@@ -214,6 +228,7 @@ export interface FileRoutesByTo {
   '/api/assets/history': typeof ApiAssetsHistoryRoute
   '/api/assets/transfers': typeof ApiAssetsTransfersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/ledger/analytics': typeof ApiLedgerAnalyticsRoute
   '/api/ledger/summary': typeof ApiLedgerSummaryRoute
   '/api/ocr/receipt': typeof ApiOcrReceiptRoute
   '/api/receipts/$id': typeof ApiReceiptsIdRouteWithChildren
@@ -225,6 +240,7 @@ export interface FileRoutesByTo {
   '/api/planning/recurring-rules/$id': typeof ApiPlanningRecurringRulesIdRoute
   '/api/planning/recurring-rules/run': typeof ApiPlanningRecurringRulesRunRoute
   '/api/receipts/$id/image': typeof ApiReceiptsIdImageRoute
+  '/api/receipts/$id/retry': typeof ApiReceiptsIdRetryRoute
   '/api/assets/accounts': typeof ApiAssetsAccountsIndexRoute
   '/api/ledger/categories': typeof ApiLedgerCategoriesIndexRoute
   '/api/ledger/transactions': typeof ApiLedgerTransactionsIndexRoute
@@ -243,6 +259,7 @@ export interface FileRoutesById {
   '/api/assets/history': typeof ApiAssetsHistoryRoute
   '/api/assets/transfers': typeof ApiAssetsTransfersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/ledger/analytics': typeof ApiLedgerAnalyticsRoute
   '/api/ledger/summary': typeof ApiLedgerSummaryRoute
   '/api/ocr/receipt': typeof ApiOcrReceiptRoute
   '/api/receipts/$id': typeof ApiReceiptsIdRouteWithChildren
@@ -254,6 +271,7 @@ export interface FileRoutesById {
   '/api/planning/recurring-rules/$id': typeof ApiPlanningRecurringRulesIdRoute
   '/api/planning/recurring-rules/run': typeof ApiPlanningRecurringRulesRunRoute
   '/api/receipts/$id/image': typeof ApiReceiptsIdImageRoute
+  '/api/receipts/$id/retry': typeof ApiReceiptsIdRetryRoute
   '/api/assets/accounts/': typeof ApiAssetsAccountsIndexRoute
   '/api/ledger/categories/': typeof ApiLedgerCategoriesIndexRoute
   '/api/ledger/transactions/': typeof ApiLedgerTransactionsIndexRoute
@@ -273,6 +291,7 @@ export interface FileRouteTypes {
     | '/api/assets/history'
     | '/api/assets/transfers'
     | '/api/auth/$'
+    | '/api/ledger/analytics'
     | '/api/ledger/summary'
     | '/api/ocr/receipt'
     | '/api/receipts/$id'
@@ -284,6 +303,7 @@ export interface FileRouteTypes {
     | '/api/planning/recurring-rules/$id'
     | '/api/planning/recurring-rules/run'
     | '/api/receipts/$id/image'
+    | '/api/receipts/$id/retry'
     | '/api/assets/accounts/'
     | '/api/ledger/categories/'
     | '/api/ledger/transactions/'
@@ -301,6 +321,7 @@ export interface FileRouteTypes {
     | '/api/assets/history'
     | '/api/assets/transfers'
     | '/api/auth/$'
+    | '/api/ledger/analytics'
     | '/api/ledger/summary'
     | '/api/ocr/receipt'
     | '/api/receipts/$id'
@@ -312,6 +333,7 @@ export interface FileRouteTypes {
     | '/api/planning/recurring-rules/$id'
     | '/api/planning/recurring-rules/run'
     | '/api/receipts/$id/image'
+    | '/api/receipts/$id/retry'
     | '/api/assets/accounts'
     | '/api/ledger/categories'
     | '/api/ledger/transactions'
@@ -329,6 +351,7 @@ export interface FileRouteTypes {
     | '/api/assets/history'
     | '/api/assets/transfers'
     | '/api/auth/$'
+    | '/api/ledger/analytics'
     | '/api/ledger/summary'
     | '/api/ocr/receipt'
     | '/api/receipts/$id'
@@ -340,6 +363,7 @@ export interface FileRouteTypes {
     | '/api/planning/recurring-rules/$id'
     | '/api/planning/recurring-rules/run'
     | '/api/receipts/$id/image'
+    | '/api/receipts/$id/retry'
     | '/api/assets/accounts/'
     | '/api/ledger/categories/'
     | '/api/ledger/transactions/'
@@ -358,6 +382,7 @@ export interface RootRouteChildren {
   ApiAssetsHistoryRoute: typeof ApiAssetsHistoryRoute
   ApiAssetsTransfersRoute: typeof ApiAssetsTransfersRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiLedgerAnalyticsRoute: typeof ApiLedgerAnalyticsRoute
   ApiLedgerSummaryRoute: typeof ApiLedgerSummaryRoute
   ApiOcrReceiptRoute: typeof ApiOcrReceiptRoute
   ApiReceiptsIdRoute: typeof ApiReceiptsIdRouteWithChildren
@@ -431,6 +456,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ledger/analytics': {
+      id: '/api/ledger/analytics'
+      path: '/api/ledger/analytics'
+      fullPath: '/api/ledger/analytics'
+      preLoaderRoute: typeof ApiLedgerAnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ledger/summary': {
@@ -545,6 +577,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReceiptsIdImageRouteImport
       parentRoute: typeof ApiReceiptsIdRoute
     }
+    '/api/receipts/$id/retry': {
+      id: '/api/receipts/$id/retry'
+      path: '/retry'
+      fullPath: '/api/receipts/$id/retry'
+      preLoaderRoute: typeof ApiReceiptsIdRetryRouteImport
+      parentRoute: typeof ApiReceiptsIdRoute
+    }
     '/api/assets/accounts/$id/adjustments': {
       id: '/api/assets/accounts/$id/adjustments'
       path: '/adjustments'
@@ -564,10 +603,12 @@ declare module '@tanstack/react-router' {
 
 interface ApiReceiptsIdRouteChildren {
   ApiReceiptsIdImageRoute: typeof ApiReceiptsIdImageRoute
+  ApiReceiptsIdRetryRoute: typeof ApiReceiptsIdRetryRoute
 }
 
 const ApiReceiptsIdRouteChildren: ApiReceiptsIdRouteChildren = {
   ApiReceiptsIdImageRoute: ApiReceiptsIdImageRoute,
+  ApiReceiptsIdRetryRoute: ApiReceiptsIdRetryRoute,
 }
 
 const ApiReceiptsIdRouteWithChildren = ApiReceiptsIdRoute._addFileChildren(
@@ -596,6 +637,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAssetsHistoryRoute: ApiAssetsHistoryRoute,
   ApiAssetsTransfersRoute: ApiAssetsTransfersRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiLedgerAnalyticsRoute: ApiLedgerAnalyticsRoute,
   ApiLedgerSummaryRoute: ApiLedgerSummaryRoute,
   ApiOcrReceiptRoute: ApiOcrReceiptRoute,
   ApiReceiptsIdRoute: ApiReceiptsIdRouteWithChildren,

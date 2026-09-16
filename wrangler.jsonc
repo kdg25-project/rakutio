@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kakeibo-2026",
+  "name": "rakutio",
   "main": "src/worker.ts",
   "compatibility_date": "2026-09-15",
   "compatibility_flags": ["nodejs_compat"],
@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "kakeibo-2026",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "f1d616d0-0d67-49eb-8cc9-9d0873b41ca8",
       "migrations_dir": "drizzle"
     }
   ],

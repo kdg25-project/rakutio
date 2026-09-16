@@ -29,6 +29,27 @@
       "when": 1789520000002,
       "tag": "0003_planning",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789520000003,
+      "tag": "0004_asset_balance_bounds",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789520000004,
+      "tag": "0005_utility_item_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789520000005,
+      "tag": "0006_asset_cascade_delete_guard",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,8 @@ CREATE TABLE `planning_recurring_rule` (
 	`payment_day` integer NOT NULL,
 	`start_date` text NOT NULL,
 	`end_date` text,
+	`next_due_month` text NOT NULL,
+	`last_attempted_at` integer DEFAULT 0 NOT NULL,
 	`active` integer DEFAULT true NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,

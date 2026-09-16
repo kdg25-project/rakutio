@@ -45,7 +45,7 @@ function createLocalD1() {
 }
 
 async function applyMigrations(db: D1Database) {
-  for (const name of ['0000_ancient_spiral.sql', '0001_ledger_core.sql', '0002_assets.sql', '0003_planning.sql']) {
+  for (const name of ['0000_ancient_spiral.sql', '0001_ledger_core.sql', '0002_assets.sql', '0003_planning.sql', '0004_asset_balance_bounds.sql', '0005_utility_item_kind.sql', '0006_asset_cascade_delete_guard.sql']) {
     const migration = await readFile(resolve(process.cwd(), 'drizzle', name), 'utf8')
     for (const statement of migration.split('--> statement-breakpoint').map((value) => value.trim()).filter(Boolean)) await db.exec(statement)
   }
@@ -99,6 +99,26 @@ describe('LedgerService local D1 integration', () => {
     const other = (await ledger.listCategories()).find((category) => category.name === 'その他')!
     expect(result.mappedToCategoryId).toBe(other.id)
     expect(transaction?.items.every((item) => item.categoryId === other.id)).toBe(true)
+  })
+
+  it('persists a utility item breakdown through category rename and remapping', async () => {
+    const local = createLocalD1(); closers.push(local.close); await applyMigrations(local.db); await seedUser(local.db, 'user-a')
+    const ledger = new LedgerService(local.db, 'user-a'); const categories = await ledger.listCategories()
+    const utility = categories.find((category) => category.name === '光熱費')!; const food = categories.find((category) => category.name === '食費')!
+    const created = await ledger.createTransaction({ type: 'expense', title: '電気代', occurredAt: '2026-09-15', items: [{ categoryId: utility.id, name: '電気', originalAmount: 1_000, utilityKind: 'electricity' }] }, 'utility-create')
+    expect(created.transaction.items[0]).toMatchObject({ utilityKind: 'electricity' })
+    const updated = await ledger.updateTransaction(created.transaction.id, created.transaction.revision, { type: 'expense', title: 'ガス代', occurredAt: '2026-09-15', items: [{ categoryId: utility.id, name: 'ガス', originalAmount: 1_000, utilityKind: 'gas' }] })
+    expect(updated.items[0]).toMatchObject({ utilityKind: 'gas' })
+    await ledger.updateCategory(utility.id, { name: '水道光熱費' })
+    const renamed = await ledger.updateTransaction(updated.id, updated.revision, { type: 'expense', title: 'ガス代', occurredAt: '2026-09-15', items: [{ categoryId: utility.id, name: 'ガス', originalAmount: 1_000, utilityKind: 'gas' }] })
+    expect(renamed.items[0]).toMatchObject({ utilityKind: 'gas' })
+    await ledger.deleteCategory(utility.id)
+    const remapped = await ledger.getTransaction(renamed.id)
+    expect(remapped?.items[0]).toMatchObject({ utilityKind: 'gas' })
+    const other = (await ledger.listCategories()).find((category) => category.name === 'その他')!
+    await expect(ledger.updateTransaction(renamed.id, renamed.revision, { type: 'expense', title: 'ガス代', occurredAt: '2026-09-15', items: [{ categoryId: other.id, name: 'ガス', originalAmount: 1_000, utilityKind: 'gas' }] })).resolves.toMatchObject({ items: [{ utilityKind: 'gas' }] })
+    await expect(ledger.createTransaction({ type: 'expense', title: '任意分類', occurredAt: '2026-09-15', items: [{ categoryId: food.id, name: '食品', originalAmount: 1, utilityKind: 'water' }] }, 'utility-nonutility')).resolves.toMatchObject({ transaction: { items: [{ utilityKind: 'water' }] } })
+    await expect(ledger.createTransaction({ type: 'expense', title: '誤内訳', occurredAt: '2026-09-15', items: [{ categoryId: utility.id, name: '不正', originalAmount: 1, utilityKind: 'steam' as never }] }, 'utility-invalid')).rejects.toMatchObject({ code: 'INVALID_UTILITY_KIND' })
   })
 
   it('blocks a deleting receipt at both the service and D1 trigger boundaries', async () => {

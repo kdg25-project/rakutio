@@ -222,7 +222,7 @@ export class PlanningService {
   async createRecurringRule(input: Record<string, unknown>) {
     const rule = await validateRule(this.db, this.userId, input)
     const now = timestamp(); const ruleId = id()
-    await statement(this.db, 'INSERT INTO planning_recurring_rule (id, user_id, title, amount, category_id, payment_method, account_id, payment_day, start_date, end_date, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [ruleId, this.userId, rule.title, rule.amount, rule.categoryId, rule.paymentMethod, rule.accountId, rule.paymentDay, rule.startDate, rule.endDate, rule.active ? 1 : 0, now, now]).run()
+    await statement(this.db, 'INSERT INTO planning_recurring_rule (id, user_id, title, amount, category_id, payment_method, account_id, payment_day, start_date, end_date, active, next_due_month, last_attempted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)', [ruleId, this.userId, rule.title, rule.amount, rule.categoryId, rule.paymentMethod, rule.accountId, rule.paymentDay, rule.startDate, rule.endDate, rule.active ? 1 : 0, monthOf(rule.startDate), now, now]).run()
     return (await this.getRecurringRule(ruleId))!
   }
 
@@ -230,7 +230,9 @@ export class PlanningService {
     const current = await this.getRecurringRule(ruleId)
     if (!current) throw new PlanningError('NOT_FOUND', '定期支出が見つかりません。', 404)
     const rule = await validateRule(this.db, this.userId, { ...current, ...input })
-    await statement(this.db, 'UPDATE planning_recurring_rule SET title = ?, amount = ?, category_id = ?, payment_method = ?, account_id = ?, payment_day = ?, start_date = ?, end_date = ?, active = ?, updated_at = ? WHERE id = ? AND user_id = ?', [rule.title, rule.amount, rule.categoryId, rule.paymentMethod, rule.accountId, rule.paymentDay, rule.startDate, rule.endDate, rule.active ? 1 : 0, timestamp(), ruleId, this.userId]).run()
+    const stored = await one(this.db, 'SELECT next_due_month FROM planning_recurring_rule WHERE id = ? AND user_id = ?', [ruleId, this.userId])
+    const nextDueMonth = !stored || rowString(stored, 'next_due_month') < monthOf(rule.startDate) ? monthOf(rule.startDate) : rowString(stored, 'next_due_month')
+    await statement(this.db, 'UPDATE planning_recurring_rule SET title = ?, amount = ?, category_id = ?, payment_method = ?, account_id = ?, payment_day = ?, start_date = ?, end_date = ?, active = ?, next_due_month = ?, updated_at = ? WHERE id = ? AND user_id = ?', [rule.title, rule.amount, rule.categoryId, rule.paymentMethod, rule.accountId, rule.paymentDay, rule.startDate, rule.endDate, rule.active ? 1 : 0, nextDueMonth, timestamp(), ruleId, this.userId]).run()
     return (await this.getRecurringRule(ruleId))!
   }
 
@@ -265,12 +267,11 @@ async function validateRule(db: D1Database, userId: string, input: Record<string
   return { title, amount, categoryId, paymentMethod, accountId, paymentDay, startDate, endDate, active }
 }
 
-async function runRuleMonth(db: D1Database, row: Row, month: string, today: string): Promise<'created' | 'skipped'> {
+async function runRuleMonth(db: D1Database, row: Row, month: string): Promise<'created' | 'skipped'> {
   const ruleId = rowString(row, 'id')
   const existing = await one(db, 'SELECT transaction_id FROM planning_recurring_run WHERE rule_id = ? AND month = ?', [ruleId, month])
   if (existing) return 'skipped'
   const occurredAt = occurrenceDate(month, rowNumber(row, 'payment_day'))
-  if (occurredAt < rowString(row, 'start_date') || (row.end_date != null && occurredAt > rowString(row, 'end_date')) || occurredAt > today) return 'skipped'
 
   const input: LedgerTransactionInput & { accountId?: string } = {
     type: 'expense', title: rowString(row, 'title'), occurredAt, merchant: '', paymentMethod: rowString(row, 'payment_method'),
@@ -283,43 +284,77 @@ async function runRuleMonth(db: D1Database, row: Row, month: string, today: stri
   return run.meta.changes === 1 ? 'created' : 'skipped'
 }
 
-async function runRules(db: D1Database, rules: Row[], today: string): Promise<RecurringRunResult> {
-  const result: RecurringRunResult = { created: 0, skipped: 0, failed: 0, processedRules: rules.length, hasMore: false }
+async function updateRuleProgress(db: D1Database, ruleId: string, userId: string, nextDueMonth: string, active: boolean, attemptedAt: number) {
+  await statement(db, 'UPDATE planning_recurring_rule SET next_due_month = ?, active = ?, last_attempted_at = ? WHERE id = ? AND user_id = ?', [nextDueMonth, active ? 1 : 0, attemptedAt, ruleId, userId]).run()
+}
+
+async function processRule(db: D1Database, row: Row, today: string, attemptedAt: number) {
+  const ruleId = rowString(row, 'id'); const userId = rowString(row, 'user_id')
   const currentMonth = monthOf(today)
-  for (const rule of rules) {
-    let month = monthOf(rowString(rule, 'start_date')); let remaining = 0
-    const lastMonth = rule.end_date == null || monthOf(String(rule.end_date)) > currentMonth ? currentMonth : monthOf(String(rule.end_date))
-    while (month <= lastMonth) {
-      if (remaining >= MAX_MONTHS_PER_RULE) { result.hasMore = true; break }
-      remaining += 1
-      try {
-        const outcome = await runRuleMonth(db, rule, month, today)
-        result[outcome] += 1
-      } catch (error) {
-        result.failed += 1
-        // A rule with an unavailable category/account or a transient write
-        // failure should not repeatedly attempt every later month in this run.
-        break
-      }
-      month = nextMonth(month)
+  let nextDueMonth = rowString(row, 'next_due_month')
+  let created = 0; let skipped = 0; let failed = 0; let active = true; let processedMonths = 0
+
+  while (nextDueMonth <= currentMonth && processedMonths < MAX_MONTHS_PER_RULE) {
+    const occurredAt = occurrenceDate(nextDueMonth, rowNumber(row, 'payment_day'))
+    if (occurredAt < rowString(row, 'start_date')) {
+      skipped += 1; processedMonths += 1; nextDueMonth = nextMonth(nextDueMonth); continue
+    }
+    if (row.end_date != null && occurredAt > rowString(row, 'end_date')) {
+      active = false
+      break
+    }
+    // The current month's payment is not due yet. Keep the cursor unchanged
+    // so the next daily run will generate it at the intended JST date.
+    if (occurredAt > today) break
+    try {
+      const outcome = await runRuleMonth(db, row, nextDueMonth)
+      if (outcome === 'created') created += 1
+      else skipped += 1
+      processedMonths += 1
+      nextDueMonth = nextMonth(nextDueMonth)
+    } catch {
+      failed += 1
+      // Do not advance a failed due month. It remains retriable and cannot
+      // silently disappear from the catch-up sequence.
+      break
     }
   }
+
+  await updateRuleProgress(db, ruleId, userId, nextDueMonth, active, attemptedAt)
+  return { created, skipped, failed, hasMore: active && nextDueMonth <= currentMonth && occurrenceDate(nextDueMonth, rowNumber(row, 'payment_day')) <= today }
+}
+
+async function runRules(db: D1Database, rules: Row[], today: string, attemptBase: number): Promise<RecurringRunResult> {
+  const result: RecurringRunResult = { created: 0, skipped: 0, failed: 0, processedRules: rules.length, hasMore: false }
+  for (const [index, rule] of rules.entries()) {
+    const outcome = await processRule(db, rule, today, attemptBase + index)
+    result.created += outcome.created
+    result.skipped += outcome.skipped
+    result.failed += outcome.failed
+    result.hasMore ||= outcome.hasMore
+  }
   return result
+}
+
+async function nextAttemptBase(db: D1Database, where: string, values: SqlValue[]) {
+  const latest = await one(db, `SELECT MAX(last_attempted_at) AS value FROM planning_recurring_rule WHERE ${where}`, values)
+  const lastAttemptedAt = latest ? Number(latest.value) : 0
+  return Math.max(timestamp(), Number.isSafeInteger(lastAttemptedAt) ? lastAttemptedAt + 1 : 0)
 }
 
 /** Scheduled-worker entry point: processes due active rules across all users in JST. */
 export async function runDueRecurring(db: D1Database, date: Date | string = new Date()) {
   const today = jstToday(date)
-  const rules = await rows(db, `${ruleSelect('r.active = 1')} ORDER BY r.start_date, r.id LIMIT ?`, [MAX_RULES_PER_RUN + 1])
+  const rules = await rows(db, `${ruleSelect('r.active = 1')} ORDER BY r.last_attempted_at, r.id LIMIT ?`, [MAX_RULES_PER_RUN + 1])
   const selected = rules.slice(0, MAX_RULES_PER_RUN)
-  const result = await runRules(db, selected, today)
+  const result = await runRules(db, selected, today, await nextAttemptBase(db, 'active = 1', []))
   return { ...result, hasMore: result.hasMore || rules.length > MAX_RULES_PER_RUN }
 }
 
 export async function runDueRecurringForUser(db: D1Database, userId: string, date: Date | string = new Date()) {
   const today = jstToday(date)
-  const rules = await rows(db, `${ruleSelect('r.user_id = ? AND r.active = 1')} ORDER BY r.start_date, r.id LIMIT ?`, [userId, MAX_RULES_PER_RUN + 1])
+  const rules = await rows(db, `${ruleSelect('r.user_id = ? AND r.active = 1')} ORDER BY r.last_attempted_at, r.id LIMIT ?`, [userId, MAX_RULES_PER_RUN + 1])
   const selected = rules.slice(0, MAX_RULES_PER_RUN)
-  const result = await runRules(db, selected, today)
+  const result = await runRules(db, selected, today, await nextAttemptBase(db, 'user_id = ? AND active = 1', [userId]))
   return { ...result, hasMore: result.hasMore || rules.length > MAX_RULES_PER_RUN }
 }
