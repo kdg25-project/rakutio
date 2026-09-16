@@ -10,6 +10,11 @@ const backChevron = readFileSync(new URL('../public/icons/chevron-left.svg', imp
 const wallet = readFileSync(new URL('../public/icons/wallet.svg', import.meta.url), 'utf8')
 
 describe('mobile-frame layout', () => {
+  it('uses the Figma frame background for the document and outer app surface', () => {
+    expect(styles).toContain(':root { color: #26342e; background: #f7f7f5;')
+    expect(styles).toContain('html { background: #f7f7f5; scrollbar-gutter: stable; }')
+    expect(styles).toContain('body { background: #f7f7f5; margin: 0; min-width: 320px; }')
+  })
   it('centres category bubbles and every viewport-fixed app action within the 402px frame', () => {
     expect(ledgerApp).toContain("import { ExpenseBubbles } from './expense-bubbles'")
     expect(ledgerApp).toContain('<ExpenseBubbles items={expenseCategories.map')
@@ -29,6 +34,12 @@ describe('mobile-frame layout', () => {
     expect(styles).toContain('.receipt-saved-actions .button.secondary { background: #ececea; border: 0; color: #637169; }')
     expect(styles).toContain('.receipt-saved-actions .primary-action { background: #799487; }')
     expect(styles).toContain('.row-chevron { color: #9da39f;')
+    expect(styles).toContain('html { background: #f7f7f5; scrollbar-gutter: stable; }')
+  })
+
+  it('gives receipt capture exactly one contained sheet scroller', () => {
+    expect(styles).toContain('.app-bottom-sheet:has(.receipt-flow) { height: min(78dvh, 700px); max-height: min(78dvh, 700px); overflow: hidden; overscroll-behavior: contain; }')
+    expect(styles).toContain('.app-bottom-sheet:has(.receipt-flow) > .receipt-flow { box-sizing: border-box; height: 100%; max-height: none; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;')
   })
 
   it('keeps the Home brand left-aligned and its actions on the right', () => {
@@ -39,7 +50,7 @@ describe('mobile-frame layout', () => {
   it('does not imitate a device status bar and keeps every Settings disclosure on one line', () => {
     expect(ledgerApp).not.toContain('home-statusbar')
     expect(styles).not.toContain('.home-statusbar')
-    expect(styles).toContain('.ledger-topbar { background: #f7f7f5; display: grid; grid-template-columns: 1fr auto; padding: 20px 16px 11px; position: relative; }')
+    expect(styles).toContain('.ledger-topbar { background: #f7f7f5; display: grid; grid-template-columns: 1fr auto; padding: 12px 16px 11px; position: relative; }')
     expect(styles).toContain('.settings-list > .settings-group { display: grid; grid-template-columns: minmax(0, 1fr); }')
     expect(styles).toContain('.settings-list > .settings-profile-row > span:not(.settings-avatar), .settings-group > button > span { flex: 1 1 auto; min-width: 0; white-space: nowrap; }')
   })
@@ -77,6 +88,13 @@ describe('mobile-frame layout', () => {
     expect(loginRoute).not.toContain('パスワード再設定は現在利用できません')
     expect(ledgerApp).not.toContain('function InformationScreen')
     expect(ledgerApp).not.toContain("'app-settings'")
+  })
+
+  it('keeps the login password visibility control in the field row', () => {
+    expect(loginRoute).toContain('className="auth-field auth-password-field"')
+    expect(styles).toContain('.auth-password-field { grid-template-columns: 21px minmax(0, 1fr) 21px; height: 48px; min-height: 48px; }')
+    expect(styles).toContain('.auth-password-field .password-visibility { align-items: center; grid-column: 3; grid-row: 1; height: 42px; justify-content: center; width: 21px; }')
+    expect(styles).toContain('.auth-password-field .password-visibility img { display: block; height: auto; width: 20px; }')
   })
 
   it('uses fixed SVG colors when the asset is rendered through an img element', () => {

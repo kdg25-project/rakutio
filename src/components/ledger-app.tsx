@@ -101,7 +101,18 @@ function AppDialog({ label, onClose, children }: { label: string; onClose: () =>
 
 function BottomSheet({ label, onClose, children, mode = 'sheet' }: { label: string; onClose: () => void; children: ReactNode; mode?: 'sheet' | 'fullscreen' }) {
   const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => { const dialog = ref.current; if (!dialog) return; dialog.showModal(); dialog.querySelector<HTMLElement>('button, [href], input, select, textarea')?.focus(); return () => dialog.close() }, [])
+  useEffect(() => {
+    const dialog = ref.current
+    if (!dialog) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog.showModal()
+    dialog.querySelector<HTMLElement>('button, [href], input, select, textarea')?.focus()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      dialog.close()
+    }
+  }, [])
   return <dialog ref={ref} className={mode === 'sheet' ? 'app-bottom-sheet' : 'app-fullscreen-dialog'} aria-label={label} onCancel={(event) => { event.preventDefault(); onClose() }} onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>{children}</dialog>
 }
 

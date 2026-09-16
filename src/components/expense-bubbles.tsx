@@ -12,10 +12,34 @@ export type SeedParticle = Point & { baseX: number; baseY: number; vx: number; v
 
 const viewBox = { width: 370, height: 228 }
 const gapScale = 0.965
-const referenceSeeds: Point[] = [
+/** The positions from the populated Figma home frame: two broad upper cells,
+ * three lower cells and a narrower cell at the right. */
+const populatedReferenceSeeds: Point[] = [
   { x: 0.34, y: 0.28 }, { x: 0.70, y: 0.27 }, { x: 0.15, y: 0.70 },
   { x: 0.47, y: 0.70 }, { x: 0.72, y: 0.75 }, { x: 0.91, y: 0.48 },
 ]
+/** When one category has transactions, Figma keeps the zero-yen categories
+ * on the left and gives the populated category a calm, readable right cell. */
+const singleValueReferenceSeeds: Point[] = [
+  { x: 0.10, y: 0.22 }, { x: 0.29, y: 0.22 }, { x: 0.085, y: 0.72 },
+  { x: 0.275, y: 0.72 }, { x: 0.465, y: 0.72 }, { x: 0.765, y: 0.52 },
+]
+/**
+ * The home frame needs a composed, readable fallback while there is only one
+ * amount. A weighted Voronoi partition can legally collapse a zero-yen cell
+ * to a sliver, which is mathematically correct but visibly wrong here. These
+ * authored contours keep the same soft, liquid Figma rhythm without sharp
+ * contacts or clipped labels. The populated category receives the large cell.
+ */
+const singleValueReferencePolygons: Polygon[] = [
+  [{ x: 3, y: 25 }, { x: 15, y: 7 }, { x: 49, y: 2 }, { x: 69, y: 16 }, { x: 75, y: 42 }, { x: 69, y: 78 }, { x: 52, y: 105 }, { x: 20, y: 102 }, { x: 5, y: 80 }, { x: 1, y: 50 }],
+  [{ x: 83, y: 8 }, { x: 126, y: 3 }, { x: 151, y: 13 }, { x: 158, y: 37 }, { x: 154, y: 71 }, { x: 140, y: 100 }, { x: 111, y: 108 }, { x: 88, y: 97 }, { x: 76, y: 72 }, { x: 78, y: 40 }],
+  [{ x: 3, y: 130 }, { x: 15, y: 110 }, { x: 43, y: 104 }, { x: 65, y: 116 }, { x: 74, y: 148 }, { x: 72, y: 188 }, { x: 56, y: 218 }, { x: 30, y: 226 }, { x: 10, y: 211 }, { x: 1, y: 181 }],
+  [{ x: 78, y: 135 }, { x: 88, y: 113 }, { x: 119, y: 105 }, { x: 143, y: 119 }, { x: 151, y: 150 }, { x: 149, y: 188 }, { x: 133, y: 217 }, { x: 104, y: 225 }, { x: 84, y: 206 }, { x: 76, y: 176 }],
+  [{ x: 155, y: 143 }, { x: 167, y: 121 }, { x: 189, y: 111 }, { x: 208, y: 124 }, { x: 218, y: 153 }, { x: 219, y: 187 }, { x: 207, y: 218 }, { x: 181, y: 225 }, { x: 159, y: 211 }, { x: 149, y: 179 }],
+  [{ x: 242, y: 14 }, { x: 279, y: 5 }, { x: 319, y: 4 }, { x: 350, y: 23 }, { x: 367, y: 59 }, { x: 369, y: 108 }, { x: 358, y: 157 }, { x: 336, y: 199 }, { x: 302, y: 226 }, { x: 265, y: 218 }, { x: 238, y: 197 }, { x: 225, y: 159 }, { x: 224, y: 116 }, { x: 230, y: 64 }],
+]
+const populatedReferenceAreas = [0.235, 0.18, 0.175, 0.145, 0.14, 0.125]
 const fallbackTilt = { x: 0, y: 0 }
 const figmaThemes: Record<string, BlobTheme> = {
   food: { background: '#708779', foreground: '#ffffff' }, daily: { background: '#cfb170', foreground: '#ffffff' },
@@ -37,16 +61,60 @@ export function categoryTheme(item: Pick<ExpenseBubble, 'label' | 'icon' | 'colo
 
 export function blobAreaTargets(items: ReadonlyArray<Pick<ExpenseBubble, 'amount'>>, width: number, height: number) {
   const totalArea = width * height
-  // Six Figma categories must remain legible even when the ledger only has
-  // one populated category. 72% is reserved as equal readable space; only
-  // the remaining 28% expresses the amount ratio, capping a lone value at 40%.
-  const minimum = totalArea * Math.min(0.12, 0.82 / Math.max(items.length, 1))
-  const remaining = Math.max(0, totalArea - minimum * items.length)
-  const total = items.reduce((sum, item) => sum + Math.max(0, item.amount), 0)
-  if (total === 0) return items.map(() => totalArea / Math.max(items.length, 1))
-  return items.map((item) => minimum + remaining * (Math.max(0, item.amount) / total))
+  const count = Math.max(items.length, 1)
+  const values = items.map((item) => Math.max(0, item.amount))
+  const total = values.reduce((sum, amount) => sum + amount, 0)
+  const populatedCount = values.filter((amount) => amount > 0).length
+  if (total === 0) return items.map(() => totalArea / count)
+
+  // A single receipt must not turn the remaining five categories into thin
+  // ribbons. The two-row Figma composition needs at least 11% per zero-yen
+  // cell to keep its icon, label and amount inside the painted blob. The one
+  // populated cell can still grow, but never past the remaining 45%.
+  if (populatedCount === 1) {
+    const minimum = totalArea * Math.min(0.11, 0.66 / count)
+    const remaining = Math.max(0, totalArea - minimum * count)
+    return values.map((amount) => minimum + (amount > 0 ? remaining : 0))
+  }
+
+  // In the populated reference frame, geometry has a stable editorial order;
+  // amounts nudge it rather than rearranging the entire composition.
+  return values.map((amount, index) => {
+    const reference = populatedReferenceAreas[index] ?? 1 / count
+    const share = amount / total
+    return totalArea * (reference * 0.8 + share * 0.2)
+  })
 }
-export function baseBlobSeeds(width: number, height: number) { return referenceSeeds.map((seed) => ({ x: seed.x * width, y: seed.y * height })) }
+export function baseBlobSeeds(width: number, height: number) { return populatedReferenceSeeds.map((seed) => ({ x: seed.x * width, y: seed.y * height })) }
+function singleValueSeeds(items: ReadonlyArray<Pick<ExpenseBubble, 'amount'>>, width: number, height: number) {
+  const valueIndex = items.findIndex((item) => item.amount > 0)
+  if (valueIndex < 0 || valueIndex === 5) return singleValueReferenceSeeds.map((seed) => ({ x: seed.x * width, y: seed.y * height }))
+  // Preserve the same layout for a populated category other than "その他" by
+  // moving that category into the spacious right-hand anchor.
+  const seeds = singleValueReferenceSeeds.map((seed) => ({ x: seed.x * width, y: seed.y * height }))
+  const other = seeds[5]!
+  seeds[5] = seeds[valueIndex]!
+  seeds[valueIndex] = other
+  return seeds
+}
+function layoutSeeds(items: ReadonlyArray<Pick<ExpenseBubble, 'amount'>>, width: number, height: number) {
+  return items.filter((item) => item.amount > 0).length === 1 ? singleValueSeeds(items, width, height) : baseBlobSeeds(width, height)
+}
+
+function scaleReferencePolygon(polygon: Polygon, width: number, height: number) {
+  return polygon.map((point) => ({ x: point.x * width / viewBox.width, y: point.y * height / viewBox.height }))
+}
+function singleValueBlobTreemap(items: ReadonlyArray<ExpenseBubble>, width: number, height: number): BlobCell[] {
+  const populatedIndex = items.findIndex((item) => item.amount > 0)
+  const slots = singleValueReferencePolygons.map((polygon) => scaleReferencePolygon(polygon, width, height))
+  if (populatedIndex >= 0 && populatedIndex !== 5) [slots[populatedIndex], slots[5]] = [slots[5]!, slots[populatedIndex]!]
+  return items.map((item, index) => {
+    const polygon = slots[index]!
+    const centroid = polygonCentroid(polygon)
+    const inner = smoothBlobPolygon(insetPolygon(polygon, centroid))
+    return { id: item.id, polygon, inner, centroid: polygonCentroid(inner), area: polygonArea(polygon), path: roundedPath(inner), theme: categoryTheme(item) }
+  })
+}
 
 function polygonArea(polygon: Polygon) { return Math.abs(polygon.reduce((sum, point, index) => { const next = polygon[(index + 1) % polygon.length]!; return sum + point.x * next.y - next.x * point.y }, 0) / 2) }
 function polygonCentroid(polygon: Polygon) {
@@ -113,15 +181,17 @@ export function roundedPath(polygon: Polygon) {
 }
 
 /** Power-distance cells with iterative weight and light Lloyd relaxation. */
-export function blobTreemap(items: ReadonlyArray<ExpenseBubble>, width: number, height: number, suppliedSeeds = baseBlobSeeds(width, height)): BlobCell[] {
+export function blobTreemap(items: ReadonlyArray<ExpenseBubble>, width: number, height: number, suppliedSeeds = layoutSeeds(items, width, height)): BlobCell[] {
   if (!items.length || width <= 0 || height <= 0) return []
-  const fallback = baseBlobSeeds(width, height)
+  if (items.filter((item) => item.amount > 0).length === 1) return singleValueBlobTreemap(items, width, height)
+  const fallback = layoutSeeds(items, width, height)
   const seeds = items.map((_, index) => suppliedSeeds[index] ?? fallback[index]!)
   const weights = items.map(() => 0); const targets = blobAreaTargets(items, width, height); let cells: Polygon[] = []
   for (let iteration = 0; iteration < 54; iteration += 1) {
     cells = items.map((_, index) => powerCell(index, seeds, weights, width, height))
     cells.forEach((cell, index) => { const error = targets[index]! - polygonArea(cell); weights[index] = Math.max(-width * height, Math.min(width * height, weights[index]! + error * 0.72)) })
-    if (iteration === 17 || iteration === 35) cells.forEach((cell, index) => { if (!cell.length) return; const centroid = polygonCentroid(cell); seeds[index] = { x: seeds[index]!.x * 0.84 + centroid.x * 0.16, y: seeds[index]!.y * 0.84 + centroid.y * 0.16 } })
+    // Keep the Figma seed composition fixed. Lloyd relaxation here made the
+    // right cell drift left and pushed zero-yen cells into slivers.
   }
   cells = items.map((_, index) => powerCell(index, seeds, weights, width, height))
   return items.map((item, index) => {
@@ -136,8 +206,9 @@ export function orientationAcceleration(beta: number | null | undefined, gamma: 
   if (!Number.isFinite(beta) || !Number.isFinite(gamma)) return fallbackTilt
   return { x: Math.max(-1, Math.min(1, gamma! / 45)) * 0.08, y: Math.max(-1, Math.min(1, beta! / 60)) * 0.08 }
 }
-export function seedParticles(width: number, height: number): SeedParticle[] {
-  return baseBlobSeeds(width, height).map((seed) => ({ x: seed.x, y: seed.y, baseX: seed.x, baseY: seed.y, vx: 0, vy: 0 }))
+export function seedParticles(width: number, height: number, items?: ReadonlyArray<Pick<ExpenseBubble, 'amount'>>): SeedParticle[] {
+  const seeds = items ? layoutSeeds(items, width, height) : baseBlobSeeds(width, height)
+  return seeds.map((seed) => ({ x: seed.x, y: seed.y, baseX: seed.x, baseY: seed.y, vx: 0, vy: 0 }))
 }
 export function stepSeedPhysics(particles: SeedParticle[], width: number, height: number, tilt = fallbackTilt, deltaFrames = 1) {
   const damping = Math.pow(0.88, deltaFrames)
@@ -172,13 +243,14 @@ function fontScale(area: number) { return Math.max(0.78, Math.min(1.18, Math.sqr
 
 export function ExpenseBubbles({ items, onSelect }: { items: ReadonlyArray<ExpenseBubble>; onSelect?: (item: ExpenseBubble) => void }) {
   const svgRef = useRef<SVGSVGElement>(null); const pathRefs = useRef(new Map<string, SVGPathElement>()); const contentRefs = useRef(new Map<string, SVGGElement>())
-  const seedsRef = useRef<SeedParticle[]>(seedParticles(viewBox.width, viewBox.height)); const tiltRef = useRef(fallbackTilt); const dragRef = useRef<{ id: string; pointerId: number; last: Point } | undefined>(undefined)
+  const seedsRef = useRef<SeedParticle[]>(seedParticles(viewBox.width, viewBox.height, items)); const tiltRef = useRef(fallbackTilt); const dragRef = useRef<{ id: string; pointerId: number; last: Point } | undefined>(undefined)
   const draggedRef = useRef(false); const mountedRef = useRef(false); const orientationStopRef = useRef<() => void>(() => undefined); const [size, setSize] = useState(viewBox)
   const itemKey = useMemo(() => items.map((item) => `${item.id}:${item.amount}`).join('|'), [items])
   const initial = useMemo(() => blobTreemap(items, size.width, size.height), [items, itemKey, size])
   useEffect(() => {
     const svg = svgRef.current
     if (!svg || typeof window === 'undefined') return
+    seedsRef.current = seedParticles(size.width, size.height, items)
     let frame = 0; let previous = 0; let query: MediaQueryList | undefined; let stopOrientation: () => void = () => undefined
     const paint = (time = 0) => {
       // A sub-pixel tide keeps idle blobs alive without changing target areas.
@@ -197,7 +269,7 @@ export function ExpenseBubbles({ items, onSelect }: { items: ReadonlyArray<Expen
       const next = { width: viewBox.width, height: Math.round(viewBox.width * bounds.height / bounds.width) }
       setSize((current) => {
         if (current.width === next.width && current.height === next.height) return current
-        seedsRef.current = seedParticles(next.width, next.height)
+        seedsRef.current = seedParticles(next.width, next.height, items)
         return next
       })
     }

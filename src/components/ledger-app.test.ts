@@ -167,4 +167,11 @@ describe('live receipt camera integration', () => {
     expect(source).toContain('撮影した画像を確認（{files.length}枚）')
     expect(source).toContain("onClick={() => setPhase('capture')}")
   })
+
+  it('locks background scrolling while a bottom sheet is open', () => {
+    const source = readFileSync(new URL('./ledger-app.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("const previousOverflow = document.body.style.overflow")
+    expect(source).toContain("document.body.style.overflow = 'hidden'")
+    expect(source).toContain('document.body.style.overflow = previousOverflow')
+  })
 })

@@ -46,7 +46,7 @@ function Login() {
       <h1 className="auth-title">ログイン</h1>
       <form onSubmit={onSubmit} className="form">
         <label className="auth-field"><img src="/icons/mail.svg" alt="" /><input name="email" type="email" autoComplete="email" placeholder="メールアドレス" aria-label="メールアドレス" required /></label>
-        <label className="auth-field"><img src="/icons/lock.svg" alt="" /><input name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="パスワード" aria-label="パスワード" required /><button type="button" className="password-visibility" aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'} onClick={() => setShowPassword((value) => !value)}><img src="/icons/eye.svg" alt="" /></button></label>
+        <label className="auth-field auth-password-field"><img src="/icons/lock.svg" alt="" /><input name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="パスワード" aria-label="パスワード" required /><button type="button" className="password-visibility" aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'} onClick={() => setShowPassword((value) => !value)}><img src="/icons/eye.svg" alt="" /></button></label>
         <div className="auth-options"><label className="remember-field"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />ログインしたままにする</label></div>
         {error && <p className="error" role="alert">{error}</p>}
         <button className="button" disabled={isSubmitting}>{isSubmitting ? 'ログイン中…' : 'ログイン'}</button>
