@@ -125,3 +125,15 @@ describe('financial screen loading states', () => {
     expect(styles).toContain('finance-skeleton-pulse')
   })
 })
+
+describe('recurring screen navigation', () => {
+  it('renders a back action for returning to the registration chooser', async () => {
+    const [component, styles] = await Promise.all([
+      readFile(resolve(process.cwd(), 'src/components/financial-panels.tsx'), 'utf8'),
+      readFile(resolve(process.cwd(), 'src/components/financial-panels.css'), 'utf8'),
+    ])
+    expect(component).toContain('onBack, onChanged, cacheScope')
+    expect(component).toContain('aria-label="新規登録に戻る"')
+    expect(styles).toContain('.finance-back-button')
+  })
+})
