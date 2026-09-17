@@ -30,6 +30,7 @@ export type DocumentAiConfig = {
   serviceAccountPrivateKey: string
 }
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+export type DocumentAiRequestStage = 'authentication' | 'processing'
 
 export type DocumentAiErrorCode =
   | 'DOCUMENT_AI_AUTHENTICATION_FAILED'
@@ -77,6 +78,9 @@ export class DocumentAiRequestError extends Error {
     readonly httpStatus: number | null = null,
     readonly googleStatus: GoogleErrorStatus | null = null,
     readonly googleCode: number | null = null,
+    /** Safe request metadata for server logs. Never expose this to clients. */
+    readonly stage: DocumentAiRequestStage | null = null,
+    readonly transportErrorName: string | null = null,
   ) {
     super(message)
   }
@@ -155,20 +159,23 @@ async function documentAiErrorFromResponse(response: Response) {
   return documentAiErrorForStatus(response.status, providerError.status, providerError.code)
 }
 
-type DocumentAiRequestStage = 'authentication' | 'processing'
+function safeErrorName(error: unknown) {
+  const name = error instanceof Error ? error.name : typeof error
+  return /^[A-Za-z0-9_.-]{1,80}$/.test(name) ? name : 'UnknownError'
+}
 
 function documentAiTransportError(error: unknown, signal: AbortSignal, stage: DocumentAiRequestStage) {
-  const errorName = error instanceof Error ? error.name : ''
+  const errorName = safeErrorName(error)
   if (signal.aborted || errorName === 'AbortError' || errorName === 'TimeoutError') {
-    if (stage === 'authentication') return new DocumentAiRequestError('読み取りサービスの認証がタイムアウトしました。時間を置いてから再試行してください。', 'DOCUMENT_AI_AUTH_TIMEOUT')
-    return new DocumentAiRequestError('読み取りがタイムアウトしました。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_TIMEOUT')
+    if (stage === 'authentication') return new DocumentAiRequestError('読み取りサービスの認証がタイムアウトしました。時間を置いてから再試行してください。', 'DOCUMENT_AI_AUTH_TIMEOUT', null, null, null, stage, errorName)
+    return new DocumentAiRequestError('読み取りがタイムアウトしました。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_TIMEOUT', null, null, null, stage, errorName)
   }
-  if (stage === 'authentication') return new DocumentAiRequestError('読み取りサービスの認証先に接続できませんでした。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_AUTH_NETWORK_ERROR')
+  if (stage === 'authentication') return new DocumentAiRequestError('読み取りサービスの認証先に接続できませんでした。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_AUTH_NETWORK_ERROR', null, null, null, stage, errorName)
   // A processor ID is part of the path, so an invalid ID is returned as a
   // typed 404 above. A fetch rejection here means the regional API endpoint
   // itself could not be reached (for example DNS/egress trouble), without
   // exposing the URL or the underlying provider error to the client.
-  return new DocumentAiRequestError('読み取りサービスの接続先に到達できませんでした。管理者に Document AI のリージョン設定とサービスの接続状況を確認してもらってください。', 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE')
+  return new DocumentAiRequestError('読み取りサービスの接続先に到達できませんでした。管理者に Document AI のリージョン設定とサービスの接続状況を確認してもらってください。', 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE', null, null, null, stage, errorName)
 }
 
 function hasValidSignature(type: string, bytes: Uint8Array) {
@@ -332,9 +339,17 @@ export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExt
   })
 }
 
-function processEndpoint(config: DocumentAiConfig, processorVersion?: string) {
+export type DocumentAiEndpointKind = 'regional' | 'global'
+
+/**
+ * Document AI accepts regional processor resource names on the regional API
+ * hostname. The global hostname is retained only as a US transport fallback:
+ * EU requests must never leave their configured regional endpoint.
+ */
+export function documentAiProcessEndpoint(config: DocumentAiConfig, processorVersion?: string, endpointKind: DocumentAiEndpointKind = 'regional') {
   const processorPath = processorVersion ? `processors/${config.processorId}/processorVersions/${processorVersion}` : `processors/${config.processorId}`
-  return `https://${config.location}-documentai.googleapis.com/v1/projects/${config.projectId}/locations/${config.location}/${processorPath}:process`
+  const hostname = endpointKind === 'global' ? 'documentai.googleapis.com' : `${config.location}-documentai.googleapis.com`
+  return `https://${hostname}/v1/projects/${config.projectId}/locations/${config.location}/${processorPath}:process`
 }
 
 async function processReceiptWithDocumentAi(input: {
@@ -368,6 +383,43 @@ async function processReceiptWithDocumentAi(input: {
   return mapExpenseDocument(result.document as { entities?: unknown })
 }
 
+async function processWithEndpointFallback(input: {
+  config: DocumentAiConfig
+  processorVersion?: string
+  accessToken: string
+  bytes: Uint8Array
+  mimeType: string
+  fetchImpl: FetchLike
+  signal: AbortSignal
+}) {
+  try {
+    return await processReceiptWithDocumentAi({
+      endpoint: documentAiProcessEndpoint(input.config, input.processorVersion),
+      accessToken: input.accessToken,
+      bytes: input.bytes,
+      mimeType: input.mimeType,
+      fetchImpl: input.fetchImpl,
+      signal: input.signal,
+    })
+  } catch (error) {
+    // Google documents both the regional and global hostnames. A rejected
+    // regional fetch (no HTTP response) can be Cloudflare's route/DNS/TLS
+    // path rather than a processor error. Use the global hostname once for US
+    // only; EU must keep its data on the EU regional route.
+    if (input.config.location === 'us' && error instanceof DocumentAiRequestError && error.code === 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE' && error.stage === 'processing') {
+      return processReceiptWithDocumentAi({
+        endpoint: documentAiProcessEndpoint(input.config, input.processorVersion, 'global'),
+        accessToken: input.accessToken,
+        bytes: input.bytes,
+        mimeType: input.mimeType,
+        fetchImpl: input.fetchImpl,
+        signal: input.signal,
+      })
+    }
+    throw error
+  }
+}
+
 export async function extractReceiptWithDocumentAi(file: File, config: DocumentAiConfig, fetchImpl: FetchLike = fetch, now = Date.now(), signal = AbortSignal.timeout(20_000)): Promise<ReceiptExtraction> {
   if (!supportedImageTypes.has(file.type)) throw new OcrInputError('PNG、JPEG、WebP の画像を選択してください。')
   if (file.size === 0 || file.size > MAX_IMAGE_BYTES) throw new OcrInputError('画像は 1 バイト以上 8 MB 以下にしてください。')
@@ -376,12 +428,12 @@ export async function extractReceiptWithDocumentAi(file: File, config: DocumentA
 
   const accessToken = await getServiceAccountAccessToken(config, fetchImpl, now, signal)
   try {
-    return await processReceiptWithDocumentAi({ endpoint: processEndpoint(config, config.processorVersion), accessToken, bytes, mimeType: file.type, fetchImpl, signal })
+    return await processWithEndpointFallback({ config, processorVersion: config.processorVersion, accessToken, bytes, mimeType: file.type, fetchImpl, signal })
   } catch (error) {
     // A configured processor version can be deleted or retired. In that one
     // case the processor's default endpoint is the supported safe fallback.
     if (config.processorVersion && error instanceof DocumentAiRequestError && error.httpStatus === 404 && error.googleStatus === 'NOT_FOUND') {
-      return processReceiptWithDocumentAi({ endpoint: processEndpoint(config), accessToken, bytes, mimeType: file.type, fetchImpl, signal })
+      return processWithEndpointFallback({ config, accessToken, bytes, mimeType: file.type, fetchImpl, signal })
     }
     throw error
   }
