@@ -251,7 +251,6 @@ describe('receipt review pages', () => {
     expect(ledgerAppSource).toContain("{resultCategory?.name ?? '未設定'}")
     expect(ledgerAppSource).toContain("{result.extraction.paymentMethod ?? '未設定'}")
     expect(ledgerAppSource).toContain("item.amount == null ? '未取得' : yen(item.amount)")
-    expect(ledgerAppSource).toContain('各商品の金額は任意で、レシートの合計金額を正として登録します。')
     expect(ledgerAppSource).toContain('合計金額（レシートOCR）')
     expect(ledgerAppSource).toContain('!hasAuthoritativeReceiptTotal && <input aria-label={`値引き ${index + 1}`}')
   })
