@@ -3,6 +3,7 @@ import { FormEvent, useState } from 'react'
 
 import { authClient } from '../lib/auth-client'
 import { invalidateSessionAndReplace, isAuthenticated } from '../lib/auth-navigation'
+import { BrandLogo } from '../components/brand-logo'
 
 export const Route = createFileRoute('/login')({
   beforeLoad: ({ context }) => {
@@ -41,7 +42,7 @@ function Login() {
 
   return (
     <section className="card auth-card auth-screen">
-      <p className="app-wordmark">AppName</p>
+      <BrandLogo className="auth-wordmark" />
       <p className="auth-welcome">ようこそ</p>
       <h1 className="auth-title">ログイン</h1>
       <form onSubmit={onSubmit} className="form">

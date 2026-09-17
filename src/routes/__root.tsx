@@ -13,8 +13,8 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: '家計簿' },
-      { name: 'description', content: '家計簿の開発環境' },
+      { title: 'Rakutio' },
+      { name: 'description', content: 'Rakutio 家計簿' },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],
   }),

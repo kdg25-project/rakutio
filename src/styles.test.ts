@@ -4,12 +4,22 @@ import { describe, expect, it } from 'vitest'
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 const loginRoute = readFileSync(new URL('./routes/login.tsx', import.meta.url), 'utf8')
+const rootRoute = readFileSync(new URL('./routes/__root.tsx', import.meta.url), 'utf8')
 const ledgerApp = readFileSync(new URL('./components/ledger-app.tsx', import.meta.url), 'utf8')
 const chevron = readFileSync(new URL('../public/icons/chevron-right.svg', import.meta.url), 'utf8')
 const backChevron = readFileSync(new URL('../public/icons/chevron-left.svg', import.meta.url), 'utf8')
 const wallet = readFileSync(new URL('../public/icons/wallet.svg', import.meta.url), 'utf8')
 
 describe('mobile-frame layout', () => {
+  it('uses the Rakutio wordmark consistently instead of the Figma placeholder', () => {
+    expect(loginRoute).not.toContain('AppName')
+    expect(rootRoute).toContain("{ title: 'Rakutio' }")
+    expect(rootRoute).toContain("{ name: 'description', content: 'Rakutio 家計簿' }")
+    expect(ledgerApp).toContain('<BrandLogo />')
+    expect(loginRoute).toContain('<BrandLogo className="auth-wordmark" />')
+    expect(styles).toContain('.ledger-brand .brand-logo { color: #3e4a43; display: block; font-size: 20px; font-weight: 800; letter-spacing: .02em; line-height: 1; }')
+  })
+
   it('uses the Figma frame background for the document and outer app surface', () => {
     expect(styles).toContain(':root { color: #26342e; background: #f7f7f5;')
     expect(styles).toContain('html { background: #f7f7f5; scrollbar-gutter: stable; }')

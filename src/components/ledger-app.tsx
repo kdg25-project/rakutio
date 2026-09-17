@@ -6,6 +6,7 @@ import type { AssetAccount, AssetBalanceHistory, AssetBalanceHistoryPoint, Asset
 import type { LedgerCategory, LedgerSummary, LedgerTransaction, LedgerTransactionInput, UtilityKind } from '../server/ledger/types'
 import type { MonthlyTarget } from '../server/planning/service'
 import { ExpenseBubbles } from './expense-bubbles'
+import { BrandLogo } from './brand-logo'
 import { ReceiptCamera } from './receipt-camera'
 import { invalidateViewCache, readViewCache, viewCacheKey, writeViewCache } from '../lib/view-cache'
 import { AssetsScreen as FinanceAssetsScreen, MonthTargetScreen as FinanceMonthTargetScreen, RecurringScreen as FinanceRecurringScreen } from './financial-panels'
@@ -237,7 +238,7 @@ export function LedgerApp({ userId, userName, onSignOut }: { userId: string; use
 
   return (
     <div className="ledger-shell">
-      {(page === 'home' || overlayingHome) && <header className="ledger-topbar"><div className="ledger-brand"><p className="date-kicker">{headerDateLabel()}</p><strong>Rakutio</strong></div><div className="ledger-top-actions"><button className="top-icon" type="button" aria-label="お知らせ"><img src="/icons/bell.svg" alt="" /></button><button className="avatar" onClick={() => setPage('settings')} aria-label="設定">{profile.image ? <img className="profile-photo" src={profile.image} alt="" /> : <img src="/icons/avatar.svg" alt="" />}</button></div></header>}
+      {(page === 'home' || overlayingHome) && <header className="ledger-topbar"><div className="ledger-brand"><p className="date-kicker">{headerDateLabel()}</p><BrandLogo /></div><div className="ledger-top-actions"><button className="top-icon" type="button" aria-label="お知らせ"><img src="/icons/bell.svg" alt="" /></button><button className="avatar" onClick={() => setPage('settings')} aria-label="設定">{profile.image ? <img className="profile-photo" src={profile.image} alt="" /> : <img src="/icons/avatar.svg" alt="" />}</button></div></header>}
       <main className="ledger-main">
         <>
             {(page === 'home' || overlayingHome) && <HomeScreen month={month} summary={currentSummary} categories={categories} target={monthlyTarget} transactions={currentTransactions} loadError={loadError} onRetry={() => void refresh()} onPage={setPage} onSelect={(transaction) => { setSelected(transaction); setPage('detail') }} />}
