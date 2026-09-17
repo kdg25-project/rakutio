@@ -1,4 +1,4 @@
-import type { ReceiptExtraction } from '../../ocr/receipt'
+import { DocumentAiRequestError, type ReceiptExtraction } from '../../ocr/receipt'
 
 export type ReceiptPageAnalysis = {
   pageIndex: number
@@ -45,6 +45,7 @@ export function mergeReceiptPages(pages: ReceiptPageAnalysis[]): ReceiptExtracti
 }
 
 export function ocrFailure(error: unknown): Pick<ReceiptPageAnalysis, 'errorCode' | 'errorMessage'> {
+  if (error instanceof DocumentAiRequestError) return { errorCode: error.code, errorMessage: error.message }
   if (error instanceof Error) return { errorCode: error.name || 'OCR_FAILED', errorMessage: error.message.slice(0, 500) }
   return { errorCode: 'OCR_FAILED', errorMessage: 'OCR に失敗しました。' }
 }

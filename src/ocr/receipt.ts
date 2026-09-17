@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+const MAX_ERROR_RESPONSE_BYTES = 4 * 1024
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const DOCUMENT_AI_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
@@ -30,9 +31,132 @@ export type DocumentAiConfig = {
 }
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
+export type DocumentAiErrorCode =
+  | 'DOCUMENT_AI_AUTHENTICATION_FAILED'
+  | 'DOCUMENT_AI_INVALID_ARGUMENT'
+  | 'DOCUMENT_AI_INVALID_RESPONSE'
+  | 'DOCUMENT_AI_NETWORK_ERROR'
+  | 'DOCUMENT_AI_PERMISSION_DENIED'
+  | 'DOCUMENT_AI_PROCESSOR_NOT_FOUND'
+  | 'DOCUMENT_AI_QUOTA_EXCEEDED'
+  | 'DOCUMENT_AI_REQUEST_FAILED'
+  | 'DOCUMENT_AI_SERVICE_UNAVAILABLE'
+  | 'DOCUMENT_AI_TIMEOUT'
+  | 'DOCUMENT_AI_UNAUTHORIZED'
+
+export type GoogleErrorStatus =
+  | 'ABORTED'
+  | 'ALREADY_EXISTS'
+  | 'CANCELLED'
+  | 'DATA_LOSS'
+  | 'DEADLINE_EXCEEDED'
+  | 'FAILED_PRECONDITION'
+  | 'INTERNAL'
+  | 'INVALID_ARGUMENT'
+  | 'NOT_FOUND'
+  | 'OK'
+  | 'OUT_OF_RANGE'
+  | 'PERMISSION_DENIED'
+  | 'RESOURCE_EXHAUSTED'
+  | 'UNAUTHENTICATED'
+  | 'UNAVAILABLE'
+  | 'UNIMPLEMENTED'
+  | 'UNKNOWN'
+
 export class OcrInputError extends Error {}
 export class OcrConfigurationError extends Error {}
-export class DocumentAiRequestError extends Error {}
+export class DocumentAiRequestError extends Error {
+  readonly name = 'DocumentAiRequestError'
+
+  constructor(
+    message: string,
+    readonly code: DocumentAiErrorCode = 'DOCUMENT_AI_REQUEST_FAILED',
+    readonly httpStatus: number | null = null,
+    readonly googleStatus: GoogleErrorStatus | null = null,
+    readonly googleCode: number | null = null,
+  ) {
+    super(message)
+  }
+}
+
+type GoogleErrorPayload = {
+  error?: {
+    code?: unknown
+    status?: unknown
+    message?: unknown
+  }
+}
+
+const googleErrorStatuses = new Set<GoogleErrorStatus>([
+  'ABORTED', 'ALREADY_EXISTS', 'CANCELLED', 'DATA_LOSS', 'DEADLINE_EXCEEDED', 'FAILED_PRECONDITION', 'INTERNAL', 'INVALID_ARGUMENT', 'NOT_FOUND', 'OK', 'OUT_OF_RANGE', 'PERMISSION_DENIED', 'RESOURCE_EXHAUSTED', 'UNAUTHENTICATED', 'UNAVAILABLE', 'UNIMPLEMENTED', 'UNKNOWN',
+])
+
+async function readBoundedResponseText(response: Response) {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (size < MAX_ERROR_RESPONSE_BYTES) {
+      const { done, value } = await reader.read()
+      if (done || !value) break
+      const remaining = MAX_ERROR_RESPONSE_BYTES - size
+      chunks.push(value.byteLength > remaining ? value.slice(0, remaining) : value)
+      size += Math.min(value.byteLength, remaining)
+      if (value.byteLength > remaining) {
+        await reader.cancel()
+        break
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const body = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(body)
+}
+
+function parseGoogleError(body: string) {
+  try {
+    const payload = JSON.parse(body) as GoogleErrorPayload
+    const error = payload && typeof payload === 'object' && payload.error && typeof payload.error === 'object' ? payload.error : null
+    const status = typeof error?.status === 'string' && googleErrorStatuses.has(error.status as GoogleErrorStatus) ? error.status as GoogleErrorStatus : null
+    return {
+      code: typeof error?.code === 'number' && Number.isInteger(error.code) ? error.code : null,
+      status,
+      // Parse the message only to validate the expected Google shape. Do not
+      // retain or display it: provider messages can include request details.
+      message: typeof error?.message === 'string' ? error.message.slice(0, 512) : null,
+    }
+  } catch {
+    return { code: null, status: null, message: null }
+  }
+}
+
+function documentAiErrorForStatus(httpStatus: number, googleStatus: GoogleErrorStatus | null, googleCode: number | null) {
+  if (httpStatus === 404 || googleStatus === 'NOT_FOUND') return new DocumentAiRequestError('読み取り設定が見つかりません。しばらくしても直らない場合は、管理者にプロセッサ設定の確認を依頼してください。', 'DOCUMENT_AI_PROCESSOR_NOT_FOUND', httpStatus, googleStatus, googleCode)
+  if (httpStatus === 403 || googleStatus === 'PERMISSION_DENIED') return new DocumentAiRequestError('読み取りサービスへの権限がありません。管理者に Document AI の権限と API 有効化を確認してもらってください。', 'DOCUMENT_AI_PERMISSION_DENIED', httpStatus, googleStatus, googleCode)
+  if (httpStatus === 401 || googleStatus === 'UNAUTHENTICATED') return new DocumentAiRequestError('読み取りサービスの認証に失敗しました。管理者に認証設定を確認してもらってください。', 'DOCUMENT_AI_UNAUTHORIZED', httpStatus, googleStatus, googleCode)
+  if (httpStatus === 429 || googleStatus === 'RESOURCE_EXHAUSTED') return new DocumentAiRequestError('読み取りサービスが混み合っています。少し時間を置いてから再試行してください。', 'DOCUMENT_AI_QUOTA_EXCEEDED', httpStatus, googleStatus, googleCode)
+  if (httpStatus === 400 || googleStatus === 'INVALID_ARGUMENT') return new DocumentAiRequestError('画像または読み取り設定を確認して、もう一度お試しください。', 'DOCUMENT_AI_INVALID_ARGUMENT', httpStatus, googleStatus, googleCode)
+  if (httpStatus >= 500 || googleStatus === 'UNAVAILABLE' || googleStatus === 'INTERNAL') return new DocumentAiRequestError('読み取りサービスに一時的な問題があります。少し時間を置いてから再試行してください。', 'DOCUMENT_AI_SERVICE_UNAVAILABLE', httpStatus, googleStatus, googleCode)
+  return new DocumentAiRequestError('読み取りサービスでエラーが発生しました。時間を置いてから再試行してください。', 'DOCUMENT_AI_REQUEST_FAILED', httpStatus, googleStatus, googleCode)
+}
+
+async function documentAiErrorFromResponse(response: Response) {
+  const providerError = parseGoogleError(await readBoundedResponseText(response))
+  return documentAiErrorForStatus(response.status, providerError.status, providerError.code)
+}
+
+function documentAiTransportError(error: unknown, signal: AbortSignal) {
+  const errorName = error instanceof Error ? error.name : ''
+  if (signal.aborted || errorName === 'AbortError' || errorName === 'TimeoutError') return new DocumentAiRequestError('読み取りがタイムアウトしました。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_TIMEOUT')
+  return new DocumentAiRequestError('読み取りサービスに接続できませんでした。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_NETWORK_ERROR')
+}
 
 function hasValidSignature(type: string, bytes: Uint8Array) {
   if (type === 'image/png') return bytes.length >= 8 && bytes.slice(0, 8).every((byte, index) => byte === [137, 80, 78, 71, 13, 10, 26, 10][index])
@@ -112,7 +236,7 @@ export async function getServiceAccountAccessToken(config: DocumentAiConfig, fet
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${signingInput}.${base64UrlEncode(signature)}` }),
     signal,
   })
-  if (!response.ok) throw new DocumentAiRequestError('Document AI の認証に失敗しました。')
+  if (!response.ok) throw new DocumentAiRequestError('Document AI の認証に失敗しました。管理者に認証設定を確認してもらってください。', 'DOCUMENT_AI_AUTHENTICATION_FAILED', response.status)
   const result = await response.json() as { access_token?: unknown }
   if (typeof result.access_token !== 'string' || !result.access_token) throw new DocumentAiRequestError('Document AI の認証結果が不正です。')
   return result.access_token
@@ -189,6 +313,42 @@ export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExt
   })
 }
 
+function processEndpoint(config: DocumentAiConfig, processorVersion?: string) {
+  const processorPath = processorVersion ? `processors/${config.processorId}/processorVersions/${processorVersion}` : `processors/${config.processorId}`
+  return `https://${config.location}-documentai.googleapis.com/v1/projects/${config.projectId}/locations/${config.location}/${processorPath}:process`
+}
+
+async function processReceiptWithDocumentAi(input: {
+  endpoint: string
+  accessToken: string
+  bytes: Uint8Array
+  mimeType: string
+  fetchImpl: FetchLike
+  signal: AbortSignal
+}) {
+  let response: Response
+  try {
+    response = await input.fetchImpl(input.endpoint, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ rawDocument: { content: toBase64(input.bytes), mimeType: input.mimeType }, skipHumanReview: true }),
+      signal: input.signal,
+    })
+  } catch (error) {
+    throw documentAiTransportError(error, input.signal)
+  }
+  if (!response.ok) throw await documentAiErrorFromResponse(response)
+
+  let result: { document?: unknown }
+  try {
+    result = await response.json() as { document?: unknown }
+  } catch {
+    throw new DocumentAiRequestError('読み取りサービスから有効な結果を受け取れませんでした。時間を置いてから再試行してください。', 'DOCUMENT_AI_INVALID_RESPONSE')
+  }
+  if (!result.document || typeof result.document !== 'object') throw new DocumentAiRequestError('読み取りサービスから有効な結果を受け取れませんでした。時間を置いてから再試行してください。', 'DOCUMENT_AI_INVALID_RESPONSE')
+  return mapExpenseDocument(result.document as { entities?: unknown })
+}
+
 export async function extractReceiptWithDocumentAi(file: File, config: DocumentAiConfig, fetchImpl: FetchLike = fetch, now = Date.now(), signal = AbortSignal.timeout(20_000)): Promise<ReceiptExtraction> {
   if (!supportedImageTypes.has(file.type)) throw new OcrInputError('PNG、JPEG、WebP の画像を選択してください。')
   if (file.size === 0 || file.size > MAX_IMAGE_BYTES) throw new OcrInputError('画像は 1 バイト以上 8 MB 以下にしてください。')
@@ -196,16 +356,14 @@ export async function extractReceiptWithDocumentAi(file: File, config: DocumentA
   if (!hasValidSignature(file.type, bytes)) throw new OcrInputError('画像形式を確認できませんでした。')
 
   const accessToken = await getServiceAccountAccessToken(config, fetchImpl, now, signal)
-  const processorPath = config.processorVersion ? `processors/${config.processorId}/processorVersions/${config.processorVersion}` : `processors/${config.processorId}`
-  const endpoint = `https://${config.location}-documentai.googleapis.com/v1/projects/${config.projectId}/locations/${config.location}/${processorPath}:process`
-  const response = await fetchImpl(endpoint, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ rawDocument: { content: toBase64(bytes), mimeType: file.type }, skipHumanReview: true }),
-    signal,
-  })
-  if (!response.ok) throw new DocumentAiRequestError('Document AI の読み取りに失敗しました。')
-  const result = await response.json() as { document?: unknown }
-  if (!result.document || typeof result.document !== 'object') throw new DocumentAiRequestError('Document AI の読み取り結果が不正です。')
-  return mapExpenseDocument(result.document as { entities?: unknown })
+  try {
+    return await processReceiptWithDocumentAi({ endpoint: processEndpoint(config, config.processorVersion), accessToken, bytes, mimeType: file.type, fetchImpl, signal })
+  } catch (error) {
+    // A configured processor version can be deleted or retired. In that one
+    // case the processor's default endpoint is the supported safe fallback.
+    if (config.processorVersion && error instanceof DocumentAiRequestError && error.httpStatus === 404 && error.googleStatus === 'NOT_FOUND') {
+      return processReceiptWithDocumentAi({ endpoint: processEndpoint(config), accessToken, bytes, mimeType: file.type, fetchImpl, signal })
+    }
+    throw error
+  }
 }

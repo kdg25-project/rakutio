@@ -16,8 +16,15 @@ describe('receipt camera helpers', () => {
 
   it('keeps the fallback picker in the photo library instead of opening a second native camera sheet', async () => {
     const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('./receipt-camera.tsx', import.meta.url), 'utf8'))
+    const styles = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('./receipt-camera.css', import.meta.url), 'utf8'))
     expect(source).toContain('<span>写真を選択</span><input type="file" accept={receiptFileAccept} multiple')
     expect(source).toContain('フラッシュをオンにする')
+    expect(source).toContain('<svg className="receipt-camera-live__utility-icon" viewBox="0 0 24 24" aria-hidden="true">')
+    expect(source).toContain('<rect x="3.5" y="4" width="17" height="16" rx="3" />')
+    expect(source).toContain('<path d="M3 21 21 3" />')
+    expect(styles).toContain('.receipt-camera-live__utility-icon { display: block; fill: none;')
+    expect(styles).not.toContain('receipt-camera-live__library-icon')
+    expect(styles).not.toContain('receipt-camera-live__flash-icon')
     expect(source).not.toContain('capture="environment"')
   })
 

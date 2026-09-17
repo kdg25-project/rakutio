@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { DocumentAiRequestError } from '../../ocr/receipt'
 import { analyzeReceiptPages } from './process'
 
 function page(index: number) {
@@ -29,5 +30,19 @@ describe('multi-page receipt processing', () => {
 
     expect(result.receipt).toMatchObject({ merchant: '店舗', total: 900 })
     expect(result.pages).toMatchObject([{ pageIndex: 0, status: 'analyzed' }, { pageIndex: 1, status: 'failed', errorMessage: 'Document AI timeout' }])
+  })
+
+  it('preserves classified Document AI failures for storage and the client response', async () => {
+    const result = await analyzeReceiptPages({
+      images: [page(0)],
+      extract: vi.fn(async () => {
+        throw new DocumentAiRequestError('読み取りサービスへの権限がありません。', 'DOCUMENT_AI_PERMISSION_DENIED', 403, 'PERMISSION_DENIED', 403)
+      }),
+    })
+
+    expect(result).toMatchObject({
+      receipt: null,
+      pages: [{ pageIndex: 0, status: 'failed', errorCode: 'DOCUMENT_AI_PERMISSION_DENIED', errorMessage: '読み取りサービスへの権限がありません。' }],
+    })
   })
 })

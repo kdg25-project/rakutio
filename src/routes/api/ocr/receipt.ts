@@ -65,7 +65,14 @@ export const Route = createFileRoute('/api/ocr/receipt')({
           const processed = await analyzeReceiptPages({ images: images.map((image, pageIndex) => ({ image, pageIndex })), extract: extractReceipt })
           await markReceiptAnalysis(env.DB, session.user.id, receiptId, processed.pages, processed.receipt)
           const payload = { receipt: processed.receipt, receiptId, pageCount: images.length, pages: processed.pages.map(({ pageIndex, status, errorCode, errorMessage }) => ({ pageIndex, status, errorCode, errorMessage })) }
-          return Response.json(processed.receipt ? payload : { ...payload, error: { code: 'OCR_FAILED', message: 'OCR に失敗しました。内容を確認して手入力してください。' } }, { status: processed.receipt ? 200 : 502 })
+          const firstFailure = processed.pages.find((page) => page.status === 'failed')
+          return Response.json(processed.receipt ? payload : {
+            ...payload,
+            error: {
+              code: firstFailure?.errorCode ?? 'OCR_FAILED',
+              message: firstFailure?.errorMessage ?? 'OCR に失敗しました。内容を確認して手入力してください。',
+            },
+          }, { status: processed.receipt ? 200 : 502 })
         } catch (error) {
           if (error instanceof OcrConfigurationError) return errorResponse(503, 'OCR_UNAVAILABLE', error.message, receiptId)
           if (error instanceof OcrInputError) return errorResponse(400, 'INVALID_IMAGE', error.message, receiptId)

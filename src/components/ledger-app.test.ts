@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { LedgerCategory, LedgerSummary, LedgerTransaction } from '../server/ledger/types'
-import { appendReceiptFiles, dismissOverlayPage, homeAssetValues, homeCategorySlots, HomeScreen, monthLabel, monthRangeLabel, pageAfterTransactionDelete, receiptPageAfterAdd, receiptPageAfterRemove, receiptPageStatusText, receiptRetryUrl, receiptUploadFormData, ScreenTitle, summaryForMonth, transactionsForMonth } from './ledger-app'
+import { appendReceiptFiles, dismissOverlayPage, hasCapturedReceiptPages, homeAssetValues, homeCategorySlots, HomeScreen, incomeTransactionItems, monthLabel, monthRangeLabel, pageAfterTransactionDelete, receiptPageAfterAdd, receiptPageAfterRemove, receiptPageStatusText, receiptRetryUrl, receiptUploadFormData, ScreenTitle, summaryForMonth, transactionsForMonth } from './ledger-app'
 
 const summary = (month: string): LedgerSummary => ({
   month,
@@ -18,6 +18,8 @@ const summary = (month: string): LedgerSummary => ({
   trend: [],
   monthlyTrend: [],
 })
+
+const ledgerAppSource = readFileSync(new URL('./ledger-app.tsx', import.meta.url), 'utf8')
 
 const transaction = (id: string, occurredAt: string): LedgerTransaction => ({
   id,
@@ -112,6 +114,27 @@ describe('form navigation safety', () => {
   })
 })
 
+describe('income entry flow', () => {
+  it('creates the one backend item from the entered title, category, and amount', () => {
+    expect(incomeTransactionItems('  9月分の給与  ', 'salary', 250000)).toEqual([{ name: '9月分の給与', categoryId: 'salary', originalAmount: 250000 }])
+  })
+
+  it('keeps income entry and editing on the basic form while expenses retain their review flow', () => {
+    const source = readFileSync(new URL('./ledger-app.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("transaction?.type === 'income' ? 'basic' : transaction || receipt ? 'review' : 'basic'")
+    expect(source).toContain("stage === 'basic' && type !== 'income' ? goToReview : submit")
+    expect(source).toContain('収入カテゴリ')
+    expect(source).toContain('入金先口座（任意）')
+    expect(source).toContain('<section className="line-items"><div className="section-heading"><h2>購入した商品</h2>')
+  })
+
+  it('returns from category management to settings through LedgerApp', () => {
+    const source = readFileSync(new URL('./ledger-app.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("<CategoriesScreen categories={categories} onBack={() => setPage('settings')}")
+    expect(source).toContain('ScreenTitle title="カテゴリ管理" onBack={onBack}')
+  })
+})
+
 
 describe('Figma home category slots', () => {
   const category = (id: string, name: string, icon: string): LedgerCategory => ({ id, name, icon, color: '#708779', isDefault: true, createdAt: 0, updatedAt: 0 })
@@ -137,6 +160,12 @@ describe('receipt review pages', () => {
     expect(appendReceiptFiles([first, second, first, second, first, second], [first])).toHaveLength(6)
   })
 
+  it('only exposes the capture-to-review return path after an image exists', () => {
+    const page = new File(['page'], 'page.jpg', { type: 'image/jpeg' })
+    expect(hasCapturedReceiptPages([])).toBe(false)
+    expect(hasCapturedReceiptPages([page])).toBe(true)
+  })
+
   it('posts every selected page in order under images regardless of the active thumbnail', () => {
     const first = new File(['first'], 'first.jpg', { type: 'image/jpeg' })
     const second = new File(['second'], 'second.jpg', { type: 'image/jpeg' })
@@ -147,6 +176,22 @@ describe('receipt review pages', () => {
 
   it('shows Japanese feedback for an individual failed OCR page', () => {
     expect(receiptPageStatusText({ pageIndex: 1, status: 'failed', errorMessage: '画像が不鮮明です' })).toBe('2枚目を読み取れませんでした。画像が不鮮明です')
+  })
+
+  it('keeps normal and failed OCR review feedback below the preview controls', () => {
+    const preview = ledgerAppSource.indexOf('<div className="receipt-preview">')
+    const pages = ledgerAppSource.indexOf('<div className="receipt-pages">', preview)
+    const feedback = ledgerAppSource.indexOf('<div className="receipt-review-feedback">', pages)
+    const action = ledgerAppSource.indexOf('この写真で読み取る', feedback)
+
+    expect(preview).toBeGreaterThan(-1)
+    expect(pages).toBeGreaterThan(preview)
+    expect(feedback).toBeGreaterThan(pages)
+    expect(action).toBeGreaterThan(feedback)
+    expect(ledgerAppSource).toContain('role="alert"')
+    expect(ledgerAppSource).toContain('aria-label="ページ別の読み取り結果"')
+    expect(ledgerAppSource).toContain('失敗したページを再読み取り')
+    expect(ledgerAppSource).toContain("files.length > 1 && <button type=\"button\" className=\"button secondary\" onClick={() => void retrySavedDraft(true)}>すべてのページを再読み取り")
   })
 })
 
@@ -171,6 +216,9 @@ describe('live receipt camera integration', () => {
     expect(source).toContain('<ReceiptCamera onCapture={(file) => addFiles([file])}')
     expect(source).toContain('onFallbackFiles={addFiles}')
     expect(source).toContain("onClick={() => setPhase('capture')}")
+    expect(source).toContain("hasCapturedReceiptPages(files) && <button className=\"receipt-capture-return\"")
+    expect(source).toContain("onClick={() => setPhase('review')}")
+    expect(source).toContain('aria-label="撮影した画像に戻る"')
   })
 
   it('locks background scrolling while a bottom sheet is open', () => {

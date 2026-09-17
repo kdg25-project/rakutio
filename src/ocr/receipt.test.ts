@@ -31,6 +31,10 @@ function config(): DocumentAiConfig {
   }
 }
 
+function png() {
+  return new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'receipt.png', { type: 'image/png' })
+}
+
 describe('Document AI receipt adapter', () => {
   it('signs a service-account assertion and exchanges it only with Google OAuth', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'access-token' })))
@@ -68,15 +72,67 @@ describe('Document AI receipt adapter', () => {
   })
 
   it('uses one timeout signal for OAuth and Document AI processing', async () => {
-    const png = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'receipt.png', { type: 'image/png' })
     const signal = new AbortController().signal
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ document: { entities: [] } })))
-    await expect(extractReceiptWithDocumentAi(png, config(), fetchMock, Date.now(), signal)).resolves.toMatchObject({ total: null })
+    await expect(extractReceiptWithDocumentAi(png(), config(), fetchMock, Date.now(), signal)).resolves.toMatchObject({ total: null })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(signal)
     expect(fetchMock.mock.calls[1]?.[1]?.signal).toBe(signal)
     expect(fetchMock.mock.calls[1]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+  })
+
+  it('retries a missing configured processor version once through the default processor endpoint', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 404, status: 'NOT_FOUND', message: 'processor version was removed' } }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ document: { entities: [] } })))
+
+    await expect(extractReceiptWithDocumentAi(png(), { ...config(), processorVersion: 'version-123' }, fetchMock)).resolves.toMatchObject({ total: null })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123/processorVersions/version-123:process')
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+  })
+
+  it('classifies the default processor failure after a version fallback without leaking provider details', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 404, status: 'NOT_FOUND', message: 'version no longer exists' } }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 404, status: 'NOT_FOUND', message: 'projects/secret-project/processors/secret-processor' } }), { status: 404 }))
+
+    await expect(extractReceiptWithDocumentAi(png(), { ...config(), processorVersion: 'version-123' }, fetchMock)).rejects.toMatchObject({
+      code: 'DOCUMENT_AI_PROCESSOR_NOT_FOUND',
+      httpStatus: 404,
+      googleStatus: 'NOT_FOUND',
+      message: expect.not.stringContaining('secret-processor'),
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('classifies permission failures and does not fall back to another endpoint', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED', message: 'caller has no permission' } }), { status: 403 }))
+
+    await expect(extractReceiptWithDocumentAi(png(), { ...config(), processorVersion: 'version-123' }, fetchMock)).rejects.toMatchObject({
+      code: 'DOCUMENT_AI_PERMISSION_DENIED',
+      httpStatus: 403,
+      googleStatus: 'PERMISSION_DENIED',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a safe classified error when the provider sends a malformed error body', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockResolvedValueOnce(new Response('not-json: token=should-not-be-exposed', { status: 400 }))
+
+    await expect(extractReceiptWithDocumentAi(png(), config(), fetchMock)).rejects.toMatchObject({
+      code: 'DOCUMENT_AI_INVALID_ARGUMENT',
+      httpStatus: 400,
+      googleStatus: null,
+      message: expect.not.stringContaining('should-not-be-exposed'),
+    })
   })
 })
