@@ -134,6 +134,11 @@ describe('income entry flow', () => {
     expect(source).toContain("<CategoriesScreen categories={categories} onBack={() => setPage('settings')}")
     expect(source).toContain('ScreenTitle title="カテゴリ管理" onBack={onBack}')
   })
+
+  it('returns from monthly target settings to settings through LedgerApp', () => {
+    const source = readFileSync(new URL('./ledger-app.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("<FinanceMonthTargetScreen month={month} notify={setNotice} onBack={() => setPage('settings')}")
+  })
 })
 
 

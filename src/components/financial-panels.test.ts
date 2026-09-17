@@ -140,3 +140,12 @@ describe('recurring screen navigation', () => {
     expect(styles).toContain('.finance-back-button')
   })
 })
+
+describe('monthly target navigation', () => {
+  it('renders a back action for returning to settings', async () => {
+    const component = await readFile(resolve(process.cwd(), 'src/components/financial-panels.tsx'), 'utf8')
+    expect(component).toContain('export function MonthTargetScreen({ month, notify, onBack, onChanged, cacheScope }')
+    expect(component).toContain('aria-label="設定に戻る"')
+    expect(component).toContain('onClick={onBack}')
+  })
+})

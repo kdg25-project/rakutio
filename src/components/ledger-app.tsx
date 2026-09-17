@@ -307,7 +307,7 @@ export function LedgerApp({ userId, userName, onSignOut }: { userId: string; use
             {page === 'receipt-saved' && <ReceiptSavedScreen itemCount={savedReceiptItemCount} onContinue={() => startNew('receipt')} onClose={() => setPage('home')} />}
             {page === 'analytics' && <HistoryAnalyticsScreen month={month} setMonth={setMonth} summary={summary} categories={categories} onSelect={(transaction) => { setSelected(transaction); setPage('detail') }} cacheScope={userId} />}
             {page === 'categories' && <CategoriesScreen categories={categories} onBack={() => setPage('settings')} onChanged={async () => { invalidateViewCache(userId); await refresh() }} notify={setNotice} confirm={(title, text, action) => setConfirmation({ title, text, action })} />}
-            {page === 'budget' && <FinanceMonthTargetScreen month={month} notify={setNotice} onChanged={async () => { invalidateViewCache(userId); await refresh() }} cacheScope={userId} />}
+            {page === 'budget' && <FinanceMonthTargetScreen month={month} notify={setNotice} onBack={() => setPage('settings')} onChanged={async () => { invalidateViewCache(userId); await refresh() }} cacheScope={userId} />}
             {page === 'assets' && <FinanceAssetsScreen notify={setNotice} onChanged={async () => { invalidateViewCache(userId); await refresh() }} onBack={() => setPage('settings')} cacheScope={userId} />}
             {page === 'recurring' && <FinanceRecurringScreen notify={setNotice} onBack={() => setPage('add')} onChanged={async () => { invalidateViewCache(userId); await refresh() }} cacheScope={userId} />}
             {page === 'settings' && <SettingsScreen userName={profileName} onPage={setPage} onSignOut={async () => {
