@@ -12,5 +12,7 @@ declare namespace Cloudflare {
     DOCUMENT_AI_PROCESSOR_VERSION?: string
     DOCUMENT_AI_SERVICE_ACCOUNT_EMAIL?: string
     DOCUMENT_AI_SERVICE_ACCOUNT_PRIVATE_KEY?: string
+    GOOGLE_AI_API_KEY?: string
+    GOOGLE_AI_MODEL?: string
   }
 }

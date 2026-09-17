@@ -10,12 +10,12 @@ function page(index: number) {
 describe('multi-page receipt processing', () => {
   it('keeps ordered distinct line items, removes exact duplicates, and never adds page totals', async () => {
     const extract = vi.fn(async (image: File) => image.name === '0.png'
-      ? { merchant: '店舗', purchasedAt: '2026-09-16', total: 1000, tax: 100, currency: 'JPY', items: [{ name: '牛乳', quantity: 1, amount: 200 }, { name: 'パン', quantity: 1, amount: 300 }] }
+      ? { merchant: '店舗', purchasedAt: '2026-09-16', total: 1000, tax: 100, currency: 'JPY', paymentMethod: '現金', items: [{ name: '牛乳', quantity: 1, amount: 200 }, { name: 'パン', quantity: 1, amount: 300 }] }
       : { merchant: null, purchasedAt: null, total: 1500, tax: 150, currency: 'JPY', items: [{ name: 'パン', quantity: 1, amount: 300 }, { name: '卵', quantity: 1, amount: 500 }] })
 
     const result = await analyzeReceiptPages({ images: [page(0), page(1)], extract })
 
-    expect(result.receipt).toEqual({ merchant: '店舗', purchasedAt: '2026-09-16', total: 1500, tax: 150, currency: 'JPY', items: [{ name: '牛乳', quantity: 1, amount: 200 }, { name: 'パン', quantity: 1, amount: 300 }, { name: '卵', quantity: 1, amount: 500 }] })
+    expect(result.receipt).toEqual({ merchant: '店舗', purchasedAt: '2026-09-16', total: 1500, tax: 150, currency: 'JPY', paymentMethod: '現金', items: [{ name: '牛乳', quantity: 1, amount: 200 }, { name: 'パン', quantity: 1, amount: 300 }, { name: '卵', quantity: 1, amount: 500 }] })
     expect(result.pages.map((item) => item.status)).toEqual(['analyzed', 'analyzed'])
   })
 

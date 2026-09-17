@@ -9,6 +9,7 @@ export async function retryReceiptAnalysis(input: {
   userId: string
   receiptId: string
   extract: (image: File) => Promise<ReceiptExtraction>
+  categorize?: (extraction: ReceiptExtraction) => Promise<ReceiptExtraction>
   allPages?: boolean
 }) {
   let claimed = false
@@ -17,8 +18,12 @@ export async function retryReceiptAnalysis(input: {
     claimed = true
     const images = await loadReceiptRetryImages(input.db, input.bucket, input.userId, input.receiptId, claim.pages.map((page) => page.pageIndex))
     const processed = await analyzeReceiptPages({ images, extract: input.extract, existingPages: claim.existingPages })
-    await markReceiptAnalysis(input.db, input.userId, input.receiptId, processed.pages, processed.receipt)
-    return { receipt: processed.receipt, receiptId: input.receiptId, pageCount: processed.pages.length, pages: processed.pages.map(({ pageIndex, status, errorCode, errorMessage }) => ({ pageIndex, status, errorCode, errorMessage })) }
+    let receipt = processed.receipt
+    if (receipt && input.categorize) {
+      try { receipt = await input.categorize(receipt) } catch { /* Optional LLM enrichment must not fail OCR retry. */ }
+    }
+    await markReceiptAnalysis(input.db, input.userId, input.receiptId, processed.pages, receipt)
+    return { receipt, receiptId: input.receiptId, pageCount: processed.pages.length, pages: processed.pages.map(({ pageIndex, status, errorCode, errorMessage }) => ({ pageIndex, status, errorCode, errorMessage })) }
   } catch (error) {
     // Never alter a pending draft unless this request first claimed it. This
     // prevents a duplicate retry from turning another active OCR request into

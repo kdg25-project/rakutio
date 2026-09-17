@@ -1,9 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { env } from 'cloudflare:workers'
 
+import { applyGeminiCategories, classifyReceiptItemsWithGemini } from '../../../../ai/gemini'
 import { auth } from '../../../../lib/auth'
 import { extractReceipt } from '../../../../ocr/document-ai'
-import { OcrConfigurationError, OcrInputError } from '../../../../ocr/receipt'
+import { OcrConfigurationError, OcrInputError, type ReceiptExtraction } from '../../../../ocr/receipt'
+import { LedgerService } from '../../../../server/ledger/service'
 import { retryReceiptAnalysis } from '../../../../server/receipts/retry'
 import { ReceiptStorageError } from '../../../../server/receipts/storage'
 import { enforceSameOrigin } from '../../../../server/request-security'
@@ -17,6 +19,19 @@ function storageErrorResponse(error: ReceiptStorageError) {
     : error.code === 'RECEIPT_ATTACHED' || error.code === 'RECEIPT_ANALYSIS_IN_PROGRESS' || error.code === 'RECEIPT_NOT_RETRYABLE' ? 409
       : 503
   return errorResponse(status, error.code, error.message, error.receiptId)
+}
+
+async function categorizeReceipt(userId: string, extraction: ReceiptExtraction) {
+  try {
+    const categories = await new LedgerService(env.DB, userId).listCategories()
+    const classifications = await classifyReceiptItemsWithGemini({
+      config: { apiKey: env.GOOGLE_AI_API_KEY, model: env.GOOGLE_AI_MODEL },
+      merchant: extraction.merchant,
+      items: extraction.items,
+      categories: categories.map(({ id, name }) => ({ id, name })),
+    })
+    return applyGeminiCategories(extraction, classifications)
+  } catch { return extraction }
 }
 
 export const Route = createFileRoute('/api/receipts/$id/retry')({
@@ -41,6 +56,7 @@ export const Route = createFileRoute('/api/receipts/$id/retry')({
             userId: session.user.id,
             receiptId: params.id,
             extract: extractReceipt,
+            categorize: (extraction) => categorizeReceipt(session.user.id, extraction),
             allPages,
           })
           return Response.json(result.receipt ? result : { ...result, error: { code: 'OCR_FAILED', message: 'OCR に失敗しました。内容を確認して手入力してください。' } }, { status: result.receipt ? 200 : 502 })

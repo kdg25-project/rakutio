@@ -73,6 +73,8 @@ npx wrangler secret put DOCUMENT_AI_PROCESSOR_ID
 npx wrangler secret put DOCUMENT_AI_PROCESSOR_VERSION
 npx wrangler secret put DOCUMENT_AI_SERVICE_ACCOUNT_EMAIL
 npx wrangler secret put DOCUMENT_AI_SERVICE_ACCOUNT_PRIVATE_KEY
+npx wrangler secret put GOOGLE_AI_API_KEY
+npx wrangler secret put GOOGLE_AI_MODEL
 ```
 
 `.dev.vars` はアップロード・コミットしません。
@@ -104,6 +106,12 @@ npx wrangler secret put DOCUMENT_AI_SERVICE_ACCOUNT_PRIVATE_KEY
 Google Cloud で Document AI API を有効化し、対象リージョン（`us` または `eu`）に日本語を扱える Expense Parser プロセッサを作成します。必要なら、そのプロセッサのバージョン ID を `DOCUMENT_AI_PROCESSOR_VERSION` に設定します。空欄ならプロセッサの既定バージョンを使用します。
 
 Workers から使うサービスアカウントには対象プロジェクトで最小権限の `roles/documentai.apiUser` を付与します。サービスアカウントのメールアドレスと PEM 形式の秘密鍵は Workers secret のみへ設定し、JSON キーファイル、秘密鍵、`.dev.vars` をコミットしません。OAuth トークン交換は固定の `oauth2.googleapis.com` だけに送信します。
+
+## Gemini によるカテゴリ候補（任意）
+
+`GOOGLE_AI_API_KEY` を Workers secret とローカルの `.dev.vars` に設定すると、OCR が抽出した店舗名・商品名と、そのユーザーのカテゴリ ID・カテゴリ名だけを Gemini に送り、商品ごとのカテゴリ候補を返します。画像、サービスアカウント鍵、ユーザー情報は送信しません。`GOOGLE_AI_MODEL` は任意で、空欄なら `gemini-2.5-flash-lite` を使用します。
+
+Gemini の応答が失敗・タイムアウト・不正な JSON・未知のカテゴリ ID だった場合、OCR と登録フローは継続し、カテゴリは未設定のまま手動で選択できます。API キーを設定しない場合も Gemini は呼び出しません。
 
 Expense Parser は10ページ以下の文書で 1 文書あたり $0.10 です。継続的な無料枠は価格表に記載されていません。新規かつ対象の Google Cloud アカウントは $300・90日間の無料トライアルを利用できる場合があります。Document OCR の「最初の1,000ページ無料」は Expense Parser には適用しません。
 

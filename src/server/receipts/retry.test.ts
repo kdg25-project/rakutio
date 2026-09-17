@@ -75,6 +75,36 @@ describe('saved receipt OCR retry', () => {
     expect(local.state).toMatchObject({ status: 'analyzed' })
   })
 
+  it('uses optional category enrichment without allowing it to block a successful OCR retry', async () => {
+    const local = retryDatabase(); const categorize = vi.fn(async (receipt: { items: Array<{ name: string; categoryId?: string }> }) => ({
+      ...receipt,
+      items: receipt.items.map((item) => ({ ...item, categoryId: 'food' })),
+    }))
+    const result = await retryReceiptAnalysis({
+      db: local.db,
+      bucket: retryBucket(),
+      userId: 'owner-1',
+      receiptId: 'receipt-1',
+      extract: vi.fn(async () => ({ merchant: 'テスト店', purchasedAt: null, total: 100, tax: null, currency: 'JPY', items: [{ name: 'パン', quantity: null, amount: 100 }] })),
+      categorize,
+    })
+    expect(categorize).toHaveBeenCalledOnce()
+    expect(result.receipt?.items[0]).toMatchObject({ categoryId: 'food' })
+  })
+
+  it('retains the OCR result when optional category enrichment rejects', async () => {
+    const local = retryDatabase()
+    const result = await retryReceiptAnalysis({
+      db: local.db,
+      bucket: retryBucket(),
+      userId: 'owner-1',
+      receiptId: 'receipt-1',
+      extract: vi.fn(async () => ({ merchant: 'テスト店', purchasedAt: null, total: 100, tax: null, currency: 'JPY', items: [] })),
+      categorize: vi.fn(async () => { throw new Error('Gemini unavailable') }),
+    })
+    expect(result.receipt).toMatchObject({ merchant: 'テスト店', total: 100 })
+  })
+
   it('retains the original draft as failed when the OCR provider rejects', async () => {
     const local = retryDatabase(); const bucket = retryBucket()
     const extract = vi.fn(async () => { throw new Error('provider unavailable') })

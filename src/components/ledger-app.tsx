@@ -59,6 +59,56 @@ export function receiptRetryUrl(receiptId: string) {
 }
 export function dismissOverlayPage() { return 'home' as const }
 export function pageAfterTransactionDelete() { return 'history' as const }
+const receiptCategoryKeywords: Record<string, readonly string[]> = {
+  食費: ['スーパー', 'コンビニ', 'レストラン', 'カフェ', '飲食', '食品', '食料', 'パン', '牛乳', '野菜', '果物', '米', '弁当', '寿司', 'coffee'],
+  日用品: ['ドラッグ', '薬局', '洗剤', 'ティッシュ', 'トイレット', '日用品', '雑貨', 'ホームセンター', '電池'],
+  交通費: ['駅', '電車', '鉄道', 'バス', 'タクシー', '駐車', '高速', 'suica', 'pasmo'],
+  住居費: ['家賃', '管理費', '共益費', '住宅', '不動産'],
+  光熱費: ['電気', 'ガス', '水道', '電力'],
+  通信費: ['携帯', 'スマホ', '通信', '電話', 'wifi', 'wi-fi', 'インターネット'],
+  医療費: ['病院', '医院', '診療', 'クリニック', '処方', '医薬品', '歯科'],
+  教育: ['学校', '授業', '教材', '書籍', '塾', '受講'],
+  娯楽: ['映画', 'シネマ', 'cinema', 'toho', 'チケット', 'ゲーム', 'ライブ', '遊園地'],
+  衣服: ['衣服', '洋服', 'アパレル', 'ユニクロ', 'gu', 'zara', 'しまむら'],
+  サブスク: ['サブスク', 'netflix', 'spotify', 'youtube premium', 'amazon prime', 'icloud'],
+}
+
+function receiptCategoryText(value: string) { return value.normalize('NFKC').toLocaleLowerCase('ja-JP').replace(/\s+/g, '') }
+
+/**
+ * Categorizes only when an OCR merchant or item has an explicit, local keyword
+ * match. This deliberately keeps ambiguous receipts editable instead of making
+ * a network/LLM request or silently assigning an arbitrary category.
+ */
+export function receiptCategoryForText(categories: readonly LedgerCategory[], ...parts: readonly string[]) {
+  const text = receiptCategoryText(parts.join(' '))
+  if (!text) return undefined
+  const scored = categories.map((category) => {
+    const name = receiptCategoryText(category.name)
+    if (!name || name === 'その他') return { category, score: 0 }
+    const nameScore = name.length >= 2 && text.includes(name) ? 4 : 0
+    const keywordScore = (receiptCategoryKeywords[category.name] ?? []).reduce((score, keyword) => score + (text.includes(receiptCategoryText(keyword)) ? 2 : 0), 0)
+    return { category, score: nameScore + keywordScore }
+  }).sort((left, right) => right.score - left.score)
+  return scored[0]?.score ? scored[0].category : undefined
+}
+
+export function receiptCategoryForExtraction(categories: readonly LedgerCategory[], extraction: ReceiptExtraction) {
+  const counts = new Map<string, number>()
+  for (const item of extraction.items) {
+    if (!item.categoryId || !categories.some((category) => category.id === item.categoryId)) continue
+    counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + 1)
+  }
+  const classifiedId = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0]
+  if (classifiedId) return categories.find((category) => category.id === classifiedId)
+  return receiptCategoryForText(categories, extraction.merchant ?? '', ...extraction.items.map((item) => item.name))
+}
+
+export function receiptItemCategoryId(categories: readonly LedgerCategory[], merchant: string | null | undefined, itemName: string, suggestedCategoryId?: string) {
+  if (suggestedCategoryId && categories.some((category) => category.id === suggestedCategoryId)) return suggestedCategoryId
+  return receiptCategoryForText(categories, merchant ?? '', itemName)?.id ?? categories.find((category) => category.name === 'その他')?.id ?? categories[0]?.id ?? ''
+}
+
 function apiError(body: ApiErrorBody | undefined, fallback: string) {
   return typeof body?.error?.message === 'string' ? body.error.message : fallback
 }
@@ -253,7 +303,7 @@ export function LedgerApp({ userId, userName, onSignOut }: { userId: string; use
             {page === 'detail' && selected && <TransactionDetail transaction={selected} categories={categories} accounts={accounts} onClose={() => { setSelected(undefined); setPage('history') }} onEdit={() => openEntry(selected)} onDelete={() => void removeTransaction(selected)} />}
             {page === 'add' && <AddTransactionScreen onChoose={startNew} onDismiss={() => setPage(dismissOverlayPage())} />}
             {page === 'entry' && <TransactionEditor key={editorKey} categories={categories} accounts={accounts} transaction={editing} receipt={receiptInput} initialType={entryType} onCancel={() => setPage(editing ? 'history' : receiptInput ? 'receipt' : 'add')} onSave={saveTransaction} />}
-            {page === 'receipt' && <ReceiptFlow onUseReceipt={(receipt) => openEntry(undefined, receipt)} onCancel={() => setPage(dismissOverlayPage())} />}
+            {page === 'receipt' && <ReceiptFlow categories={categories} onUseReceipt={(receipt) => openEntry(undefined, receipt)} onCancel={() => setPage(dismissOverlayPage())} />}
             {page === 'receipt-saved' && <ReceiptSavedScreen itemCount={savedReceiptItemCount} onContinue={() => startNew('receipt')} onClose={() => setPage('home')} />}
             {page === 'analytics' && <HistoryAnalyticsScreen month={month} setMonth={setMonth} summary={summary} categories={categories} onSelect={(transaction) => { setSelected(transaction); setPage('detail') }} cacheScope={userId} />}
             {page === 'categories' && <CategoriesScreen categories={categories} onBack={() => setPage('settings')} onChanged={async () => { invalidateViewCache(userId); await refresh() }} notify={setNotice} confirm={(title, text, action) => setConfirmation({ title, text, action })} />}
@@ -340,17 +390,17 @@ function TransactionEditor({ categories, accounts, transaction, receipt, initial
   const [title, setTitle] = useState(transaction?.title ?? extraction?.merchant ?? '')
   const [merchant, setMerchant] = useState(transaction?.merchant ?? extraction?.merchant ?? '')
   const [occurredAt, setOccurredAt] = useState(transaction?.occurredAt ?? (receipt ? extraction?.purchasedAt ?? '' : dateNow()))
-  const [paymentMethod, setPaymentMethod] = useState(transaction?.paymentMethod ?? '')
+  const [paymentMethod, setPaymentMethod] = useState(transaction?.paymentMethod ?? extraction?.paymentMethod ?? '')
   const [accountId, setAccountId] = useState(transaction?.accountId ?? '')
   const [giftAccountId, setGiftAccountId] = useState(transaction?.giftAccountId ?? '')
   const [memo, setMemo] = useState(transaction?.memo ?? '')
-  const fallbackCategory = categories[0]?.id ?? ''
+  const fallbackCategory = categories.find((category) => category.name === 'その他')?.id ?? categories[0]?.id ?? ''
   const incomeCategories = categories.filter((category) => category.name === '給与' || category.name === '副収入')
   const fallbackIncomeCategory = incomeCategories[0]?.id ?? fallbackCategory
   const [incomeCategoryId, setIncomeCategoryId] = useState(transaction?.items[0]?.categoryId ?? fallbackIncomeCategory)
   const [incomeAmount, setIncomeAmount] = useState(transaction?.type === 'income' ? String(transaction.items[0]?.originalAmount ?? '') : '')
   const selectedIncomeCategoryId = incomeCategories.some((category) => category.id === incomeCategoryId) ? incomeCategoryId : fallbackIncomeCategory
-  const [items, setItems] = useState<EditorItem[]>(() => transaction?.items.map((item) => ({ id: item.id, name: item.name, originalAmount: item.originalAmount, discountAmount: item.itemDiscountAmount, categoryId: item.categoryId, utilityKind: item.utilityKind ?? undefined })) ?? extraction?.items.map((item) => ({ name: item.name, originalAmount: item.amount ?? 0, discountAmount: 0, categoryId: fallbackCategory })) ?? [{ name: '', originalAmount: 0, discountAmount: 0, categoryId: fallbackCategory }])
+  const [items, setItems] = useState<EditorItem[]>(() => transaction?.items.map((item) => ({ id: item.id, name: item.name, originalAmount: item.originalAmount, discountAmount: item.itemDiscountAmount, categoryId: item.categoryId, utilityKind: item.utilityKind ?? undefined })) ?? extraction?.items.map((item) => ({ name: item.name, originalAmount: item.amount ?? 0, discountAmount: 0, categoryId: receiptItemCategoryId(categories, extraction.merchant, item.name, item.categoryId) })) ?? [{ name: '', originalAmount: 0, discountAmount: 0, categoryId: fallbackCategory }])
   const [receiptDiscountAmount, setReceiptDiscountAmount] = useState(transaction?.receiptDiscountAmount ?? 0)
   const [pointUsedAmount, setPointUsedAmount] = useState(transaction?.pointUsedAmount ?? 0)
   const [giftCertificateUsedAmount, setGiftCertificateUsedAmount] = useState(transaction?.giftCertificateUsedAmount ?? 0)
@@ -407,9 +457,16 @@ export function receiptPageAfterAdd(currentLength: number) { return Math.max(0, 
 export function receiptPageAfterRemove(currentLength: number, activeIndex: number) { return Math.max(0, Math.min(activeIndex, currentLength - 2)) }
 export function receiptUploadFormData(files: readonly File[]) { const form = new FormData(); files.forEach((file) => form.append('images', file)); return form }
 export function receiptPageStatusText(page: OcrPageStatus) { return page.status === 'analyzed' ? `${page.pageIndex + 1}枚目を読み取りました。` : `${page.pageIndex + 1}枚目を読み取れませんでした。${page.errorMessage ? `${page.errorMessage}` : ''}` }
-function ReceiptFlow({ onUseReceipt, onCancel }: { onUseReceipt: (receipt: { receiptId: string; extraction?: ReceiptExtraction }) => void; onCancel: () => void }) {
-  const [files, setFiles] = useState<File[]>([]); const [previews, setPreviews] = useState<string[]>([]); const [activePage, setActivePage] = useState(0); const [error, setError] = useState<string>(); const [failedReceiptId, setFailedReceiptId] = useState<string>(); const [pageStatuses, setPageStatuses] = useState<OcrPageStatus[]>([]); const [result, setResult] = useState<{ receiptId: string; extraction: ReceiptExtraction }>(); const [phase, setPhase] = useState<'capture' | 'review' | 'analyzing' | 'result'>('capture'); const generation = useRef(0)
+function ReceiptFlow({ categories, onUseReceipt, onCancel }: { categories: readonly LedgerCategory[]; onUseReceipt: (receipt: { receiptId: string; extraction?: ReceiptExtraction }) => void; onCancel: () => void }) {
+  const [files, setFiles] = useState<File[]>([]); const [previews, setPreviews] = useState<string[]>([]); const [activePage, setActivePage] = useState(0); const [error, setError] = useState<string>(); const [failedReceiptId, setFailedReceiptId] = useState<string>(); const [pageStatuses, setPageStatuses] = useState<OcrPageStatus[]>([]); const [result, setResult] = useState<{ receiptId: string; extraction: ReceiptExtraction }>(); const [phase, setPhase] = useState<'capture' | 'review' | 'analyzing' | 'result'>('capture'); const [analysisElapsedSeconds, setAnalysisElapsedSeconds] = useState(0); const generation = useRef(0)
   useEffect(() => { const urls = files.map((file) => URL.createObjectURL(file)); setPreviews(urls); return () => urls.forEach((url) => URL.revokeObjectURL(url)) }, [files])
+  useEffect(() => {
+    if (phase !== 'analyzing') return
+    setAnalysisElapsedSeconds(0)
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => setAnalysisElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1_000)
+    return () => window.clearInterval(timer)
+  }, [phase])
   function addFiles(added: readonly File[], moveToReview = true) { generation.current += 1; if (!added.length) return; const next = appendReceiptFiles(files, added); setFiles(next); setActivePage(receiptPageAfterAdd(files.length)); if (moveToReview) setPhase('review'); setError(next.length < files.length + added.length ? 'レシート画像は6枚まで追加できます。' : undefined); setFailedReceiptId(undefined); setPageStatuses([]); setResult(undefined) }
   function removePage(index: number) { generation.current += 1; if (files.length <= 1) { setFiles([]); setActivePage(0); setPhase('capture'); return }; setFiles((previous) => previous.filter((_, page) => page !== index)); setActivePage(receiptPageAfterRemove(files.length, index)); setError(undefined); setFailedReceiptId(undefined); setPageStatuses([]) }
   const file = files[activePage]; const preview = previews[activePage]
@@ -418,11 +475,12 @@ function ReceiptFlow({ onUseReceipt, onCancel }: { onUseReceipt: (receipt: { rec
   async function read() { if (!files.length) return; const current = generation.current + 1; generation.current = current; setPhase('analyzing'); setError(undefined); setFailedReceiptId(undefined); setPageStatuses([]); try { const response = await fetch('/api/ocr/receipt', { method: 'POST', body: receiptUploadFormData(files) }); const payload = await response.json().catch(() => undefined) as OcrResponse | undefined; applyOcrResponse(response, payload, typeof payload?.receiptId === 'string' ? payload.receiptId : undefined, current) } catch { if (generation.current === current) { setError('通信に失敗しました。接続を確認して再試行してください。'); setPhase('review') } } }
   async function retrySavedDraft(allPages = false) { const receiptId = failedReceiptId; if (!receiptId) return; const current = generation.current + 1; generation.current = current; setPhase('analyzing'); setError(undefined); try { const response = await fetch(receiptRetryUrl(receiptId), { method: 'POST', headers: { accept: 'application/json', ...(allPages ? { 'content-type': 'application/json' } : {}) }, credentials: 'same-origin', body: allPages ? JSON.stringify({ allPages: true }) : undefined }); const payload = await response.json().catch(() => undefined) as OcrResponse | undefined; applyOcrResponse(response, payload, receiptId, current) } catch { if (generation.current === current) { setError('通信に失敗しました。接続を確認して再試行してください。'); setPhase('review') } } }
   const failedPages = pageStatuses.filter((page) => page.status === 'failed')
+  const resultCategory = result ? receiptCategoryForExtraction(categories, result.extraction) : undefined
   return <BottomSheet label={phase === 'capture' ? 'レシートを撮影' : '撮影した画像'} onClose={goBack} mode={phase === 'capture' ? 'receipt-capture' : 'receipt'}><section className="receipt-flow screen-stack" data-phase={phase}>
     {phase === 'capture' ? <><header className="receipt-capture-heading"><span className="sheet-handle" aria-hidden="true" />{hasCapturedReceiptPages(files) && <button className="receipt-capture-return" type="button" onClick={() => setPhase('review')} aria-label="撮影した画像に戻る"><img src="/icons/chevron-left.svg" alt="" /><span>撮影した画像</span></button>}<h1>レシートを撮影</h1><p>カメラで撮影するほか、<br />スクリーンショットや保存済みの画像からも選択できます。</p></header><ReceiptCamera onCapture={(file) => addFiles([file])} onFallbackFiles={addFiles} onCancel={() => { if (files.length) setPhase('review'); else onCancel() }} /><aside className="receipt-tip"><b><span aria-hidden="true">♧</span>きれいに読み取るコツ</b><p>・明るい場所で撮影してください<br />・レシート全体が枠に収まるようにしてください<br />・長いレシートは複数回に分けて撮影できます</p></aside></> : <ScreenTitle title={phase === 'review' ? '撮影した画像' : phase === 'analyzing' ? '' : '読み取り結果'} onBack={goBack} rightAction={phase === 'result' ? <button type="button" className="text-action" onClick={() => onUseReceipt(result!)}>編集</button> : undefined} />}
     {phase === 'review' && <><div className="receipt-preview">{preview && <img src={preview} alt={`選択したレシート ${activePage + 1}枚目`} />}</div><div className="receipt-pages"><b>{activePage + 1}/{files.length}</b><div>{previews.map((url, index) => <button type="button" className={index === activePage ? 'active' : ''} key={url} onClick={() => setActivePage(index)} aria-label={`レシート ${index + 1}枚目を表示`}><img src={url} alt="" />{files.length > 1 && <span className="receipt-page-delete" onClick={(event) => { event.stopPropagation(); removePage(index) }}>×</span>}</button>)}<button type="button" className="receipt-continue-capture" onClick={() => setPhase('capture')}><span>＋</span><small>続けて撮影</small></button></div><p>長いレシートは複数回に分けて撮影できます</p></div><div className="receipt-review-feedback">{error && <div className="inline-error" role="alert"><p>{error}</p>{failedReceiptId && <p><a href={`/api/receipts/${encodeURIComponent(failedReceiptId)}/image`}>保存済みの元画像を開く</a></p>}</div>}{pageStatuses.length > 0 && <ul className="receipt-page-statuses" aria-label="ページ別の読み取り結果">{pageStatuses.map((page) => <li className={page.status} key={page.pageIndex}>{receiptPageStatusText(page)}</li>)}</ul>}{failedReceiptId && <div className="receipt-retry-actions"><button type="button" className="button secondary" onClick={() => void retrySavedDraft()}>失敗したページを再読み取り</button>{files.length > 1 && <button type="button" className="button secondary" onClick={() => void retrySavedDraft(true)}>すべてのページを再読み取り</button>}<button type="button" className="button secondary" onClick={() => onUseReceipt({ receiptId: failedReceiptId })}>手入力で明細を作成</button></div>}</div><button className="primary-action entry-fixed-action" type="button" disabled={!files.length} onClick={() => void read()}>この写真で読み取る</button></>}
-    {phase === 'analyzing' && <div className="receipt-analysis" role="status"><span className="receipt-ocr-mark">☷</span><h2>データを読み取っています</h2><p>しばらくお待ちください</p><ul><li>画像を解析中</li><li>文字を認識中</li><li>商品情報を抽出中</li><li>カテゴリを判定</li><li>結果を整理</li></ul><button type="button" className="text-action" onClick={goBack}>キャンセル</button></div>}
-    {phase === 'result' && result && <>{failedPages.length > 0 && <section className="receipt-partial-result" aria-live="polite"><b>{failedPages.length}枚の画像を読み取れませんでした</b><ul>{failedPages.map((page) => <li key={page.pageIndex}>{receiptPageStatusText(page)}</li>)}</ul><button type="button" className="button secondary" onClick={() => { setPhase('review') }}>再試行する</button></section>}<section className="receipt-analysis-summary"><div className="receipt-analysis-image">{preview && <img src={preview} alt="読み取ったレシート" />}</div><div><b>{result.extraction.merchant || '未取得'}</b><small>{result.extraction.purchasedAt || '日付未取得'}</small><strong>合計 {result.extraction.total == null ? '未取得' : yen(result.extraction.total)}</strong></div></section><dl className="receipt-analysis-fields"><div><dt>カテゴリ</dt><dd>未設定</dd></div><div><dt>支払い方法</dt><dd>未設定</dd></div><div><dt>メモ</dt><dd>—</dd></div></dl><section className="receipt-result-summary"><h2>検出した商品 <small>{result.extraction.items.length}商品</small></h2>{result.extraction.items.map((item, index) => <span key={`${item.name}-${index}`}><b>{item.name || '名称未取得'}</b><strong>{item.amount == null ? '未取得' : yen(item.amount)}</strong></span>)}</section><button className="primary-action entry-fixed-action" type="button" onClick={() => onUseReceipt(result)}>この内容で登録する</button></>}
+    {phase === 'analyzing' && <div className="receipt-analysis" role="status" aria-live="polite"><span className="receipt-ocr-mark">☷</span><h2>データを読み取っています</h2><p>{analysisElapsedSeconds ? `${analysisElapsedSeconds}秒経過・読み取りサービスからの応答を待っています` : '画像を読み取りサービスへ送信しています'}</p><ul aria-label="読み取り中の処理"><li>画像と文字を解析中</li><li>商品情報を抽出中</li><li>支払い方法を確認中</li><li>カテゴリを判定中</li><li>結果を整理中</li></ul><small className="receipt-analysis-note">完了した処理だけを結果に反映します。通信中は各項目を完了表示にしません。</small><button type="button" className="text-action" onClick={goBack}>キャンセル</button></div>}
+    {phase === 'result' && result && <>{failedPages.length > 0 && <section className="receipt-partial-result" aria-live="polite"><b>{failedPages.length}枚の画像を読み取れませんでした</b><ul>{failedPages.map((page) => <li key={page.pageIndex}>{receiptPageStatusText(page)}</li>)}</ul><button type="button" className="button secondary" onClick={() => { setPhase('review') }}>再試行する</button></section>}<section className="receipt-analysis-summary"><div className="receipt-analysis-image">{preview && <img src={preview} alt="読み取ったレシート" />}</div><div><b>{result.extraction.merchant || '未取得'}</b><small>{result.extraction.purchasedAt || '日付未取得'}</small><strong>合計 {result.extraction.total == null ? '未取得' : yen(result.extraction.total)}</strong></div></section><dl className="receipt-analysis-fields"><div><dt>カテゴリ</dt><dd>{resultCategory?.name ?? '未設定'}</dd></div><div><dt>支払い方法</dt><dd>{result.extraction.paymentMethod ?? '未設定'}</dd></div><div><dt>メモ</dt><dd>—</dd></div></dl><section className="receipt-result-summary"><h2>検出した商品 <small>{result.extraction.items.length}商品</small></h2>{result.extraction.items.map((item, index) => <span key={`${item.name}-${index}`}><b>{item.name || '名称未取得'}</b><strong>{item.amount == null ? '未取得' : yen(item.amount)}</strong></span>)}</section><button className="primary-action entry-fixed-action" type="button" onClick={() => onUseReceipt(result)}>この内容で登録する</button></>}
   </section></BottomSheet>
 }
 

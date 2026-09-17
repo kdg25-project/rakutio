@@ -32,6 +32,7 @@ export function mergeReceiptPages(pages: ReceiptPageAnalysis[]): ReceiptExtracti
   const finalWithTax = [...successful].reverse().find((page) => page.receipt.tax !== null)
   const firstMerchant = successful.find((page) => page.receipt.merchant)?.receipt.merchant ?? null
   const firstDate = successful.find((page) => page.receipt.purchasedAt)?.receipt.purchasedAt ?? null
+  const firstPaymentMethod = successful.find((page) => page.receipt.paymentMethod)?.receipt.paymentMethod ?? null
   const currencySource = finalWithTotal ?? successful.find((page) => page.receipt.currency)
 
   return {
@@ -40,6 +41,10 @@ export function mergeReceiptPages(pages: ReceiptPageAnalysis[]): ReceiptExtracti
     total: finalWithTotal?.receipt.total ?? null,
     tax: finalWithTax?.receipt.tax ?? null,
     currency: currencySource?.receipt.currency ?? null,
+    // Keep pre-payment-method receipt JSON byte-for-byte compatible when no
+    // page detected a method. Fresh Document AI results may explicitly carry
+    // null, but merged multi-page drafts should not gain a meaningless field.
+    ...(firstPaymentMethod ? { paymentMethod: firstPaymentMethod } : {}),
     items,
   }
 }

@@ -13,10 +13,17 @@ export const receiptSchema = z.object({
   total: z.number().nonnegative().nullable(),
   tax: z.number().nonnegative().nullable(),
   currency: z.string().length(3).nullable(),
+  // Older saved analyses predate this field, so retain optionality while
+  // allowing fresh Document AI results to carry the detected method through
+  // to the editable draft.
+  paymentMethod: z.string().min(1).max(50).nullable().optional(),
   items: z.array(z.object({
     name: z.string(),
     quantity: z.number().positive().nullable(),
     amount: z.number().nonnegative().nullable(),
+    // Added after OCR by the optional category classifier. Document AI itself
+    // never supplies an application category ID.
+    categoryId: z.string().min(1).optional(),
   })),
 })
 
@@ -285,15 +292,30 @@ function entityText(entity: DocumentAiEntity | undefined) {
   return typeof entity?.mentionText === 'string' && entity.mentionText.trim() ? entity.mentionText.trim() : null
 }
 
-function entityMoney(entity: DocumentAiEntity | undefined) {
+function entityMoney(entity: DocumentAiEntity | undefined, allowTextFallback = false) {
   const money = entity?.normalizedValue?.moneyValue
-  if (!money) return { amount: null, currency: null }
-  const units = typeof money.units === 'string' || typeof money.units === 'number' ? Number(money.units) : NaN
-  const nanos = typeof money.nanos === 'number' ? money.nanos : Number(money.nanos ?? 0)
-  const amount = Number.isSafeInteger(units) && Number.isInteger(nanos) ? units + nanos / 1_000_000_000 : null
+  if (money) {
+    const units = typeof money.units === 'string' || typeof money.units === 'number' ? Number(money.units) : NaN
+    const nanos = typeof money.nanos === 'number' ? money.nanos : Number(money.nanos ?? 0)
+    const amount = Number.isSafeInteger(units) && Number.isInteger(nanos) ? units + nanos / 1_000_000_000 : null
+    return {
+      amount: amount !== null && Number.isFinite(amount) && amount >= 0 ? amount : null,
+      currency: typeof money.currencyCode === 'string' && /^[A-Z]{3}$/.test(money.currencyCode) ? money.currencyCode : null,
+    }
+  }
+
+  // Expense Parser sometimes returns a line-item amount as only mentionText
+  // (for example `¥1,100`) or normalizedValue.text, while total_amount still
+  // has a normalized moneyValue. Keep those valid OCR values instead of
+  // turning them into an empty amount field in the draft editor.
+  if (!allowTextFallback) return { amount: null, currency: null }
+
+  const text = entityText(entity)
+  const normalizedNumber = text?.replaceAll('０', '0').replaceAll('１', '1').replaceAll('２', '2').replaceAll('３', '3').replaceAll('４', '4').replaceAll('５', '5').replaceAll('６', '6').replaceAll('７', '7').replaceAll('８', '8').replaceAll('９', '9').replaceAll(',', '').replaceAll('，', '').match(/\d+(?:\.\d+)?/)?.[0]
+  const parsed = normalizedNumber ? Number(normalizedNumber) : NaN
   return {
-    amount: amount !== null && Number.isFinite(amount) && amount >= 0 ? amount : null,
-    currency: typeof money.currencyCode === 'string' && /^[A-Z]{3}$/.test(money.currencyCode) ? money.currencyCode : null,
+    amount: Number.isFinite(parsed) && parsed >= 0 && parsed <= Number.MAX_SAFE_INTEGER ? parsed : null,
+    currency: null,
   }
 }
 
@@ -315,6 +337,10 @@ function firstEntity(entities: DocumentAiEntity[], type: string) {
   return entities.find((entity) => entity.type === type)
 }
 
+function firstEntityOfTypes(entities: DocumentAiEntity[], types: readonly string[]) {
+  return entities.find((entity) => typeof entity.type === 'string' && types.includes(entity.type))
+}
+
 function propertyBySuffix(entity: DocumentAiEntity, suffix: string) {
   return entity.properties?.find((property) => typeof property.type === 'string' && (property.type === suffix || property.type.endsWith(`/${suffix}`)))
 }
@@ -324,10 +350,14 @@ export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExt
   const total = entityMoney(firstEntity(entities, 'total_amount'))
   const tax = entityMoney(firstEntity(entities, 'total_tax_amount'))
   const currency = entityText(firstEntity(entities, 'currency'))
+  // Expense Parser emits `payment_method`. The two aliases keep existing
+  // drafts usable when a processor version uses a different payment label.
+  // This is OCR data only; unknown values deliberately remain unset.
+  const paymentMethod = entityText(firstEntityOfTypes(entities, ['payment_method', 'payment_type', 'tender_type']))
   const items = entities.filter((entity) => entity.type === 'line_item').flatMap((entity) => {
     const name = entityText(propertyBySuffix(entity, 'description'))
     if (!name) return []
-    return [{ name, quantity: null, amount: entityMoney(propertyBySuffix(entity, 'amount')).amount }]
+    return [{ name, quantity: null, amount: entityMoney(propertyBySuffix(entity, 'amount'), true).amount }]
   })
   return receiptSchema.parse({
     merchant: entityText(firstEntity(entities, 'supplier_name')),
@@ -335,6 +365,7 @@ export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExt
     total: total.amount,
     tax: tax.amount,
     currency: total.currency ?? (currency && /^[A-Z]{3}$/.test(currency) ? currency : null),
+    paymentMethod,
     items,
   })
 }

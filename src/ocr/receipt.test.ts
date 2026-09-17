@@ -53,17 +53,46 @@ describe('Document AI receipt adapter', () => {
       entities: [
         { type: 'supplier_name', mentionText: 'テスト商店' },
         { type: 'receipt_date', normalizedValue: { dateValue: { year: 2026, month: 9, day: 15 } } },
+        { type: 'payment_method', normalizedValue: { text: 'クレジットカード' } },
         { type: 'total_amount', normalizedValue: { moneyValue: { units: '12', nanos: 500000000, currencyCode: 'USD' } } },
         { type: 'line_item', properties: [
           { type: 'line_item/description', mentionText: 'りんご' },
           { type: 'line_item/amount', normalizedValue: { moneyValue: { units: '4', nanos: 250000000, currencyCode: 'USD' } } },
         ] },
       ],
-    })).toEqual({ merchant: 'テスト商店', purchasedAt: '2026-09-15', total: 12.5, tax: null, currency: 'USD', items: [{ name: 'りんご', quantity: null, amount: 4.25 }] })
+    })).toEqual({ merchant: 'テスト商店', purchasedAt: '2026-09-15', total: 12.5, tax: null, currency: 'USD', paymentMethod: 'クレジットカード', items: [{ name: 'りんご', quantity: null, amount: 4.25 }] })
 
     expect(mapExpenseDocument({ entities: [{ type: 'supplier_name', mentionText: '未確定' }, { type: 'total_amount', mentionText: '合計' }, { type: 'receipt_date', mentionText: '2026-99-99' }] })).toMatchObject({ purchasedAt: null, total: null, currency: null, items: [] })
     expect(mapExpenseDocument({ entities: [{ type: 'receipt_date', mentionText: '2026-02-29' }] }).purchasedAt).toBeNull()
     expect(mapExpenseDocument({ entities: [{ type: 'receipt_date', mentionText: '2024-02-29' }] }).purchasedAt).toBe('2024-02-29')
+  })
+
+  it('keeps the payment method unset unless the Expense Parser provides a supported payment entity', () => {
+    expect(mapExpenseDocument({ entities: [{ type: 'payment_method', mentionText: '現金' }] }).paymentMethod).toBe('現金')
+    expect(mapExpenseDocument({ entities: [{ type: 'payment_type', normalizedValue: { text: '電子マネー' } }] }).paymentMethod).toBe('電子マネー')
+    expect(mapExpenseDocument({ entities: [{ type: 'unrelated_payment', mentionText: 'カード' }] }).paymentMethod).toBeNull()
+  })
+
+  it('maps line-item amounts returned as receipt text when moneyValue is absent', () => {
+    expect(mapExpenseDocument({
+      entities: [{ type: 'line_item', properties: [
+        { type: 'line_item/description', mentionText: 'パンフレット' },
+        { type: 'line_item/amount', mentionText: '￥１，１００' },
+      ] }],
+    }).items).toEqual([{ name: 'パンフレット', quantity: null, amount: 1100 }])
+
+    expect(mapExpenseDocument({
+      entities: [{ type: 'line_item', properties: [
+        { type: 'line_item/description', mentionText: 'ドリンク' },
+        { type: 'line_item/amount', normalizedValue: { text: '600' } },
+      ] }],
+    }).items[0]?.amount).toBe(600)
+  })
+
+  it('does not treat an arbitrary number in a total mention as the total', () => {
+    expect(mapExpenseDocument({
+      entities: [{ type: 'total_amount', mentionText: '3点 ￥2,910' }],
+    }).total).toBeNull()
   })
 
   it('rejects missing credentials and failed token exchange', async () => {

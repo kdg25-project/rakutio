@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { LedgerCategory, LedgerSummary, LedgerTransaction } from '../server/ledger/types'
-import { appendReceiptFiles, dismissOverlayPage, hasCapturedReceiptPages, homeAssetValues, homeCategorySlots, HomeScreen, incomeTransactionItems, monthLabel, monthRangeLabel, pageAfterTransactionDelete, receiptPageAfterAdd, receiptPageAfterRemove, receiptPageStatusText, receiptRetryUrl, receiptUploadFormData, ScreenTitle, summaryForMonth, transactionsForMonth } from './ledger-app'
+import { appendReceiptFiles, dismissOverlayPage, hasCapturedReceiptPages, homeAssetValues, homeCategorySlots, HomeScreen, incomeTransactionItems, monthLabel, monthRangeLabel, pageAfterTransactionDelete, receiptCategoryForExtraction, receiptCategoryForText, receiptItemCategoryId, receiptPageAfterAdd, receiptPageAfterRemove, receiptPageStatusText, receiptRetryUrl, receiptUploadFormData, ScreenTitle, summaryForMonth, transactionsForMonth } from './ledger-app'
 
 const summary = (month: string): LedgerSummary => ({
   month,
@@ -148,6 +148,31 @@ describe('Figma home category slots', () => {
 })
 
 describe('receipt review pages', () => {
+  const receiptCategories: LedgerCategory[] = [
+    { id: 'food', name: '食費', icon: 'utensils', color: '#000', isDefault: true, createdAt: 0, updatedAt: 0 },
+    { id: 'fun', name: '娯楽', icon: 'party-popper', color: '#000', isDefault: true, createdAt: 0, updatedAt: 0 },
+    { id: 'other', name: 'その他', icon: 'more-horizontal', color: '#000', isDefault: true, createdAt: 0, updatedAt: 0 },
+  ]
+
+  it('classifies OCR merchant and item names locally without an LLM request', () => {
+    expect(receiptCategoryForText(receiptCategories, 'TOHO CINEMAS', 'オデュッセイア')).toMatchObject({ id: 'fun', name: '娯楽' })
+    expect(receiptCategoryForExtraction(receiptCategories, { merchant: 'スーパー', purchasedAt: null, total: 300, tax: null, currency: 'JPY', items: [{ name: 'パン', quantity: 1, amount: 300 }] })).toMatchObject({ id: 'food' })
+    expect(receiptItemCategoryId(receiptCategories, 'TOHO CINEMAS', 'パンフレット')).toBe('fun')
+    expect(receiptCategoryForText(receiptCategories, '判別できない店舗', '名称不明')).toBeUndefined()
+  })
+
+  it('keeps an unknown OCR category editable by using the existing その他 category in the form', () => {
+    expect(receiptItemCategoryId(receiptCategories, '判別できない店舗', '名称不明')).toBe('other')
+  })
+
+  it('uses a validated Gemini category before the local fallback and shows its representative category', () => {
+    const extraction = { merchant: 'TOHO CINEMAS', purchasedAt: null, total: 300, tax: null, currency: 'JPY', items: [
+      { name: 'パンフレット', quantity: 1, amount: 300, categoryId: 'food' },
+    ] }
+    expect(receiptItemCategoryId(receiptCategories, extraction.merchant, extraction.items[0]!.name, extraction.items[0]!.categoryId)).toBe('food')
+    expect(receiptCategoryForExtraction(receiptCategories, extraction)).toMatchObject({ id: 'food' })
+  })
+
   it('keeps a second selected image and selects it as page 2 of 2', () => {
     expect(receiptPageAfterAdd(1)).toBe(1)
     expect(receiptPageAfterRemove(2, 1)).toBe(0)
@@ -192,6 +217,16 @@ describe('receipt review pages', () => {
     expect(ledgerAppSource).toContain('aria-label="ページ別の読み取り結果"')
     expect(ledgerAppSource).toContain('失敗したページを再読み取り')
     expect(ledgerAppSource).toContain("files.length > 1 && <button type=\"button\" className=\"button secondary\" onClick={() => void retrySavedDraft(true)}>すべてのページを再読み取り")
+    expect(ledgerAppSource).toContain('receiptCategoryForExtraction(categories, result.extraction)')
+    expect(ledgerAppSource).toContain("{resultCategory?.name ?? '未設定'}")
+    expect(ledgerAppSource).toContain("{result.extraction.paymentMethod ?? '未設定'}")
+    expect(ledgerAppSource).toContain("item.amount == null ? '未取得' : yen(item.amount)")
+  })
+
+  it('does not pretend that unobservable server-side OCR stages are complete while waiting for the response', () => {
+    expect(ledgerAppSource).toContain('読み取りサービスからの応答を待っています')
+    expect(ledgerAppSource).toContain('通信中は各項目を完了表示にしません。')
+    expect(ledgerAppSource).toContain('支払い方法を確認中')
   })
 })
 
