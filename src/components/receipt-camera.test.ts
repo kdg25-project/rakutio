@@ -16,7 +16,8 @@ describe('receipt camera helpers', () => {
 
   it('keeps the fallback picker in the photo library instead of opening a second native camera sheet', async () => {
     const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('./receipt-camera.tsx', import.meta.url), 'utf8'))
-    expect(source).toContain('<span>ライブラリ</span><input type="file" accept={receiptFileAccept} multiple')
+    expect(source).toContain('<span>写真を選択</span><input type="file" accept={receiptFileAccept} multiple')
+    expect(source).toContain('フラッシュをオンにする')
     expect(source).not.toContain('capture="environment"')
   })
 

@@ -162,8 +162,12 @@ describe('home asset monthly comparison', () => {
 describe('live receipt camera integration', () => {
   it('renders ReceiptCamera in capture and returns from review without discarding pages', () => {
     const source = readFileSync(new URL('./ledger-app.tsx', import.meta.url), 'utf8')
-    expect(source).toContain('mode="receipt"')
+    expect(source).toContain("mode === 'receipt'")
+    expect(source).toContain("'app-receipt-screen'")
+    expect(source).toContain("mode={phase === 'capture' ? 'receipt-capture' : 'receipt'}")
     expect(source).toContain('data-phase={phase}')
+    expect(source).toContain('receipt-capture-heading')
+    expect(source).toContain('続けて撮影')
     expect(source).toContain('<ReceiptCamera onCapture={(file) => addFiles([file])}')
     expect(source).toContain('onFallbackFiles={addFiles}')
     expect(source).toContain("onClick={() => setPhase('capture')}")

@@ -11,6 +11,7 @@ const backChevron = readFileSync(new URL('../public/icons/chevron-left.svg', imp
 const wallet = readFileSync(new URL('../public/icons/wallet.svg', import.meta.url), 'utf8')
 const logo = readFileSync(new URL('../public/rakutio-logo.svg', import.meta.url), 'utf8')
 const brandLogo = readFileSync(new URL('./components/brand-logo.tsx', import.meta.url), 'utf8')
+const receiptCameraStyles = readFileSync(new URL('./components/receipt-camera.css', import.meta.url), 'utf8')
 
 describe('mobile-frame layout', () => {
   it('uses the Rakutio wordmark consistently instead of the Figma placeholder', () => {
@@ -53,12 +54,15 @@ describe('mobile-frame layout', () => {
     expect(styles).toContain('html { background: #f7f7f5; scrollbar-gutter: stable; }')
   })
 
-  it('gives receipt capture exactly one explicit contained sheet scroller', () => {
-    expect(styles).toContain('.app-receipt-sheet { height: min(86dvh, 740px); inset: auto 0 0; max-height: 100dvh; overflow: hidden; overscroll-behavior: contain; position: fixed; width: min(100vw, 402px); }')
-    expect(styles).toContain('.app-receipt-sheet > .receipt-flow { box-sizing: border-box; height: 100%; max-height: none; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;')
-    expect(styles).toContain('.app-receipt-sheet .receipt-preview { height: clamp(220px, 46dvh, 390px); max-width: 100%; min-height: 0; width: 100%; }')
-    expect(styles).toContain('.app-receipt-sheet .receipt-preview img { display: block; height: auto; max-height: 100%; max-width: 100%; object-fit: contain; width: auto; }')
-    expect(styles).toContain('.app-receipt-sheet .receipt-analysis .text-action { margin-top: 14px; position: static; transform: none; }')
+  it('uses a bottom sheet for capture and a single-scroller full screen for review', () => {
+    expect(styles).toContain('.app-receipt-capture-sheet { height: min(84dvh, 734px);')
+    expect(styles).toContain('.app-receipt-capture-sheet > .receipt-flow { background: #fff; border-radius: 20px 20px 0 0; box-sizing: border-box; height: 100%; max-height: none; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;')
+    expect(styles).toContain('.app-receipt-screen { background: #fff; border: 0; box-shadow: none; height: min(100dvh, 874px);')
+    expect(styles).toContain(".app-receipt-screen > .receipt-flow[data-phase='review'] { gap: 10px; grid-template-rows: auto minmax(0, 1fr) auto auto; }")
+    expect(styles).toContain('.app-receipt-screen .receipt-preview { align-self: start; aspect-ratio: 4 / 5; background: #a87654; border-radius: 9px; max-height: min(54dvh, 470px); }')
+    expect(styles).toContain('.app-receipt-screen .receipt-pages > div > button img, .app-receipt-screen .receipt-pages > div > .receipt-continue-capture { border-radius: 8px; height: 96px; width: 74px; }')
+    expect(receiptCameraStyles).toContain('.receipt-camera-live__preview { aspect-ratio: .91 / 1; background: #9c684a;')
+    expect(receiptCameraStyles).toContain('.receipt-camera-live__corner.top-left')
   })
 
   it('keeps the Home brand left-aligned and its actions on the right', () => {
@@ -86,6 +90,14 @@ describe('mobile-frame layout', () => {
     expect(styles).toContain('right: 16px; top: 50%; transform: translateY(-50%) rotate(90deg); width: 8px;')
     expect(styles).toContain('.profile-theme button.active::before { border: 1.5px solid #6e746f;')
     expect(styles).toContain(".profile-theme button.active::after { align-items: center; color: #fff; content: '✓'; display: grid; font-size: 20px; inset: 0;")
+  })
+
+  it('keeps manual deduction inputs visible against the entry surface', () => {
+    expect(ledgerApp).toContain('className="form-grid deduction-fields"><label>レシート値引き')
+    expect(ledgerApp).not.toContain('>ポイント利用<input')
+    expect(ledgerApp).not.toContain('>商品券利用<input')
+    expect(ledgerApp).not.toContain('>商品券口座<select')
+    expect(styles).toContain('.deduction-fields input { background: #fff; border-color: #e4e5e1; }')
   })
 
   it('centres the Account theme check and currency disclosure inside their own controls', () => {

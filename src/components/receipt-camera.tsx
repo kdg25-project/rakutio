@@ -147,13 +147,13 @@ export function ReceiptCamera({ onCapture, onCancel, onFallbackFiles }: ReceiptC
       {fallback ? <div className="receipt-camera-live__fallback"><img src="/icons/category-other.svg" alt="" /><b>写真を選択</b><span>カメラを使えない場合も、保存済みの画像を選べます。</span></div> : <video ref={videoRef} autoPlay muted playsInline aria-label="レシート撮影プレビュー" />}
       {!fallback && <><i className="receipt-camera-live__corner top-left" /><i className="receipt-camera-live__corner top-right" /><i className="receipt-camera-live__corner bottom-left" /><i className="receipt-camera-live__corner bottom-right" /></>}
     </div>
-    <p className="receipt-camera-live__message" role="status">{message}</p>
+    <p className={`receipt-camera-live__message${fallback ? '' : ' visually-hidden'}`} role="status">{message}</p>
     <div className="receipt-camera-live__controls">
-      <label className="receipt-camera-live__utility"><img src="/icons/category-other.svg" alt="" /><span>ライブラリ</span><input type="file" accept={receiptFileAccept} multiple onChange={chooseFiles} /></label>
+      <label className="receipt-camera-live__utility"><span className="receipt-camera-live__library-icon" aria-hidden="true" /><span>写真を選択</span><input type="file" accept={receiptFileAccept} multiple onChange={chooseFiles} /></label>
       {!fallback && <button className="receipt-camera-live__shutter" type="button" onClick={() => void capture()} disabled={state !== 'ready' || capturing} aria-label="撮影する"><span /></button>}
-      {fallback ? <button type="button" className="receipt-camera-live__retry" onClick={() => void startCamera(facingMode)}>カメラを再試行</button> : <button className="receipt-camera-live__utility" type="button" onClick={() => { const next = facingMode === 'environment' ? 'user' : 'environment'; setFacingMode(next) }} disabled={cameraCount < 2} aria-label="前後のカメラを切り替え"><span>{cameraCount >= 2 ? 'カメラを切替' : '背面カメラ'}</span></button>}
+      {fallback ? <button type="button" className="receipt-camera-live__retry" onClick={() => void startCamera(facingMode)}>カメラを再試行</button> : <button className="receipt-camera-live__utility" type="button" onClick={() => void toggleTorch()} disabled={!torchAvailable} aria-label={torchEnabled ? 'フラッシュをオフにする' : 'フラッシュをオンにする'}><span className="receipt-camera-live__flash-icon" aria-hidden="true">ϟ</span><span>{torchEnabled ? 'オン' : 'オフ'}</span></button>}
     </div>
-    {!fallback && <div className="receipt-camera-live__tools">{torchAvailable && <button type="button" onClick={() => void toggleTorch()}>{torchEnabled ? 'フラッシュをオフ' : 'フラッシュをオン'}</button>}<span>{capturedCount ? `${capturedCount}枚撮影済み` : '続けて複数枚撮影できます'}</span></div>}
+    {!fallback && <div className="receipt-camera-live__tools visually-hidden"><span>{capturedCount ? `${capturedCount}枚撮影済み` : '続けて複数枚撮影できます'}</span>{cameraCount >= 2 && <button type="button" onClick={() => { const next = facingMode === 'environment' ? 'user' : 'environment'; setFacingMode(next) }}>カメラを切替</button>}</div>}
     <button className="receipt-camera-live__cancel" type="button" onClick={onCancel}>キャンセル</button>
   </section>
 }

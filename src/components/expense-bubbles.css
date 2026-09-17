@@ -1,8 +1,9 @@
-.expense-bubbles { height: 228px; isolation: isolate; overflow: hidden; position: relative; touch-action: none; width: 100%; }
+.expense-bubbles { aspect-ratio: 370 / 205.667; isolation: isolate; overflow: hidden; position: relative; touch-action: none; width: 100%; }
 .expense-bubbles svg { display: block; height: 100%; overflow: visible; width: 100%; }
 .expense-blob { cursor: grab; outline: none; }
 .expense-blob:active { cursor: grabbing; }
-.expense-blob path { stroke: #f8f8f5; stroke-width: 2.4px; stroke-linejoin: round; transition: fill 160ms ease; }
+.expense-blob:focus-visible path { stroke: #191919; stroke-width: 3px; }
+.expense-blob path { stroke: #f8f8f5; stroke-width: 2.4px; stroke-linejoin: round; transition: d 280ms ease, fill 160ms ease; }
 .expense-blob-content { pointer-events: none; }
 .expense-blob-content text { dominant-baseline: middle; letter-spacing: -.035em; paint-order: stroke; }
 @media (prefers-reduced-motion: reduce) { .expense-blob path { transition: none; } }
