@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   DocumentAiRequestError,
   OcrConfigurationError,
+  documentAiProcessEndpoint,
   extractReceiptWithDocumentAi,
   getServiceAccountAccessToken,
   mapExpenseDocument,
@@ -92,15 +93,49 @@ describe('Document AI receipt adapter', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
   })
 
+  it('builds the documented regional and US global-fallback processor endpoints', () => {
+    expect(documentAiProcessEndpoint(config())).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+    expect(documentAiProcessEndpoint(config(), 'version-123')).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123/processorVersions/version-123:process')
+    expect(documentAiProcessEndpoint(config(), undefined, 'global')).toBe('https://documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+  })
+
+  it('falls back once from a rejected US regional endpoint to the global hostname', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ document: { entities: [] } })))
+
+    await expect(extractReceiptWithDocumentAi(png(), config(), fetchMock)).resolves.toMatchObject({ total: null })
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+  })
+
+  it('does not use the global hostname after a rejected EU regional endpoint', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+
+    await expect(extractReceiptWithDocumentAi(png(), { ...config(), location: 'eu' }, fetchMock)).rejects.toMatchObject({
+      code: 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE',
+      stage: 'processing',
+      transportErrorName: 'TypeError',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('distinguishes a Document AI endpoint transport failure without exposing endpoint details', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
       .mockRejectedValueOnce(new TypeError('getaddrinfo ENOTFOUND us-documentai.googleapis.com for receipt-project'))
+      .mockRejectedValueOnce(new TypeError('getaddrinfo ENOTFOUND documentai.googleapis.com for receipt-project'))
 
     await expect(extractReceiptWithDocumentAi(png(), config(), fetchMock)).rejects.toMatchObject({
       code: 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE',
+      stage: 'processing',
+      transportErrorName: 'TypeError',
       message: expect.not.stringContaining('us-documentai.googleapis.com'),
     })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('retries a missing configured processor version once through the default processor endpoint', async () => {

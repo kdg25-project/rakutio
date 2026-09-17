@@ -33,6 +33,7 @@ describe('multi-page receipt processing', () => {
   })
 
   it('preserves classified Document AI failures for storage and the client response', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const result = await analyzeReceiptPages({
       images: [page(0)],
       extract: vi.fn(async () => {
@@ -44,5 +45,37 @@ describe('multi-page receipt processing', () => {
       receipt: null,
       pages: [{ pageIndex: 0, status: 'failed', errorCode: 'DOCUMENT_AI_PERMISSION_DENIED', errorMessage: '読み取りサービスへの権限がありません。' }],
     })
+    expect(errorSpy).toHaveBeenCalledWith('Receipt OCR failed', {
+      stage: 'unknown',
+      code: 'DOCUMENT_AI_PERMISSION_DENIED',
+      httpStatus: 403,
+      googleStatus: 'PERMISSION_DENIED',
+      googleCode: 403,
+      transportErrorName: null,
+    })
+    errorSpy.mockRestore()
+  })
+
+  it('logs only safe transport metadata for a failed Document AI request', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const providerMessage = 'https://documentai.googleapis.com/v1/projects/secret-project?token=secret-token'
+    const result = await analyzeReceiptPages({
+      images: [page(0)],
+      extract: vi.fn(async () => {
+        throw new DocumentAiRequestError('読み取りサービスの接続先に到達できませんでした。', 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE', null, null, null, 'processing', 'TypeError')
+      }),
+    })
+
+    expect(result.pages[0]).toMatchObject({ errorCode: 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE' })
+    expect(errorSpy).toHaveBeenCalledWith('Receipt OCR failed', {
+      stage: 'processing',
+      code: 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE',
+      httpStatus: null,
+      googleStatus: null,
+      googleCode: null,
+      transportErrorName: 'TypeError',
+    })
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(providerMessage)
+    errorSpy.mockRestore()
   })
 })
