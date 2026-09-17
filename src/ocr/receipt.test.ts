@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   DocumentAiRequestError,
   OcrConfigurationError,
+  documentAiExpenseShape,
   documentAiProcessEndpoint,
   extractReceiptWithDocumentAi,
   getServiceAccountAccessToken,
@@ -121,6 +122,49 @@ describe('Document AI receipt adapter', () => {
       { name: 'キーホルダー', quantity: null, amount: 1210 },
       { name: 'メタリックCF', quantity: null, amount: 600 },
     ])
+  })
+
+  it('uses an amount-shaped nested line_item only after explicit amount properties are absent', () => {
+    const receipt = mapExpenseDocument({
+      entities: [
+        { type: 'line_item', properties: [
+          { type: 'line_item/description', mentionText: 'パンフレット' },
+          { type: 'line_item', mentionText: '(1 1,100 1,100)' },
+        ] },
+        { type: 'line_item', properties: [
+          { type: 'line_item/description', mentionText: '飲料 500ml' },
+          { type: 'line_item', mentionText: '飲料 500ml' },
+        ] },
+      ],
+    })
+
+    expect(receipt.items).toEqual([
+      { name: 'パンフレット', quantity: null, amount: 1100 },
+      { name: '飲料 500ml', quantity: null, amount: null },
+    ])
+  })
+
+  it('creates only shape metadata for unresolved line-item amounts', () => {
+    const shape = documentAiExpenseShape({
+      entities: [{ type: 'line_item', properties: [
+        { type: 'line_item/description', mentionText: 'private product text' },
+        { type: 'line_item/amount', normalizedValue: { text: '1234' }, mentionText: '￥1,234' },
+      ] }],
+    })
+
+    expect(shape).toEqual({
+      entityCount: 1,
+      lineItemCount: 1,
+      lineItems: [{
+        propertyCount: 2,
+        properties: [
+          { type: 'line_item/description', depth: 1, hasMoneyValue: false, hasNormalizedText: false, mentionTextLength: 20 },
+          { type: 'line_item/amount', depth: 1, hasMoneyValue: false, hasNormalizedText: true, mentionTextLength: 6 },
+        ],
+      }],
+    })
+    expect(JSON.stringify(shape)).not.toContain('private product text')
+    expect(JSON.stringify(shape)).not.toContain('1234')
   })
 
   it('does not treat an arbitrary number in a total mention as the total', () => {

@@ -399,7 +399,36 @@ function lineItemAmountRank(entity: DocumentAiEntity) {
   if (part === 'amount') return 0
   if (part === 'total_amount' || part === 'total_price' || part === 'line_total' || part === 'extended_price') return 1
   if (part === 'price' || part === 'unit_price' || part === 'item_price') return 2
+  // Some Expense Parser versions wrap a line's quantity and amount in an
+  // unnamed nested `line_item` entity. It is a weaker fallback than an
+  // explicit amount/price property, and is parsed only when its own text is
+  // made entirely of numbers and layout punctuation (see below).
+  if (part === 'line_item') return 3
   return null
+}
+
+function nestedLineItemAmount(entity: DocumentAiEntity) {
+  const text = entityText(entity)
+  if (!text) return { amount: null, currency: null }
+
+  const normalized = text
+    .replaceAll('０', '0').replaceAll('１', '1').replaceAll('２', '2').replaceAll('３', '3').replaceAll('４', '4')
+    .replaceAll('５', '5').replaceAll('６', '6').replaceAll('７', '7').replaceAll('８', '8').replaceAll('９', '9')
+    .replaceAll('，', ',').replaceAll('．', '.')
+  // Do not treat a product name such as "500ml" as its price. A nested
+  // line-item fallback is permitted only for an amount-shaped mention, e.g.
+  // "(1 1,100 1,100)" or "(600 1)" returned by the Expense Parser.
+  if (/[^\d\s,().¥￥$€£×xX]/.test(normalized)) return { amount: null, currency: null }
+
+  const numbers = normalized.match(/\d[\d,]*(?:\.\d+)?/g)
+    ?.map((value) => Number(value.replaceAll(',', '')))
+    .filter((value) => Number.isSafeInteger(value) && value >= 0) ?? []
+  if (!numbers.length) return { amount: null, currency: null }
+
+  // Parser grouping text can order this as either "1 600" or "600 1".
+  // The line amount is the largest safe integer in that constrained shape;
+  // explicit amount/price entities remain preferred by lineItemAmount.
+  return { amount: Math.max(...numbers), currency: null }
 }
 
 function lineItemAmount(entity: DocumentAiEntity) {
@@ -409,10 +438,55 @@ function lineItemAmount(entity: DocumentAiEntity) {
     .sort((left, right) => left.rank - right.rank || left.depth - right.depth || left.order - right.order)
 
   for (const candidate of candidates) {
-    const value = entityMoney(candidate.entity, true)
+    const value = propertyType(candidate.entity).split('/').at(-1) === 'line_item'
+      ? nestedLineItemAmount(candidate.entity)
+      : entityMoney(candidate.entity, true)
     if (value.amount !== null) return value
   }
   return { amount: null, currency: null }
+}
+
+type EntityShape = {
+  type: string
+  depth: number
+  hasMoneyValue: boolean
+  hasNormalizedText: boolean
+  mentionTextLength: number
+}
+
+function boundedEntityType(entity: DocumentAiEntity) {
+  const type = propertyType(entity)
+  return /^[a-z0-9_/-]{1,120}$/.test(type) ? type : 'unknown'
+}
+
+function entityShape(entity: DocumentAiEntity, depth: number): EntityShape {
+  return {
+    type: boundedEntityType(entity),
+    depth,
+    hasMoneyValue: Boolean(entity.normalizedValue?.moneyValue),
+    hasNormalizedText: typeof entity.normalizedValue?.text === 'string' && entity.normalizedValue.text.length > 0,
+    mentionTextLength: typeof entity.mentionText === 'string' ? Math.min(entity.mentionText.length, 10_000) : 0,
+  }
+}
+
+/**
+ * Safe shape-only metadata for diagnosing parser schema drift in production.
+ * It intentionally omits all OCR text, monetary values, image data, IDs,
+ * credentials, and document text anchors.
+ */
+export function documentAiExpenseShape(document: { entities?: unknown }) {
+  const entities = Array.isArray(document.entities)
+    ? document.entities.filter((entity): entity is DocumentAiEntity => Boolean(entity && typeof entity === 'object'))
+    : []
+  const lineItems = entities.filter((entity) => propertyType(entity) === 'line_item').slice(0, 20)
+  return {
+    entityCount: entities.length,
+    lineItemCount: lineItems.length,
+    lineItems: lineItems.map((lineItem) => ({
+      propertyCount: nestedProperties(lineItem).length,
+      properties: nestedProperties(lineItem).slice(0, 40).map((property) => entityShape(property.entity, property.depth)),
+    })),
+  }
 }
 
 export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExtraction {
@@ -485,7 +559,15 @@ async function processReceiptWithDocumentAi(input: {
     throw new DocumentAiRequestError('読み取りサービスから有効な結果を受け取れませんでした。時間を置いてから再試行してください。', 'DOCUMENT_AI_INVALID_RESPONSE')
   }
   if (!result.document || typeof result.document !== 'object') throw new DocumentAiRequestError('読み取りサービスから有効な結果を受け取れませんでした。時間を置いてから再試行してください。', 'DOCUMENT_AI_INVALID_RESPONSE')
-  return mapExpenseDocument(result.document as { entities?: unknown })
+  const document = result.document as { entities?: unknown }
+  const extraction = mapExpenseDocument(document)
+  if (extraction.items.some((item) => item.amount === null)) {
+    // Keep enough structure to diagnose processor-version/schema drift without
+    // putting receipt text, amounts, images, document anchors, or credentials
+    // into Cloudflare logs.
+    console.warn('Receipt OCR line-item amount missing', documentAiExpenseShape(document))
+  }
+  return extraction
 }
 
 async function processWithEndpointFallback(input: {
