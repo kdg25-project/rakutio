@@ -361,8 +361,12 @@ async function processReceiptWithDocumentAi(input: {
   signal: AbortSignal
 }) {
   let response: Response
+  // workerd's global fetch is a receiver-sensitive host function. Calling it
+  // as input.fetchImpl(...) binds `this` to `input`, which can throw
+  // "Illegal invocation" before a request reaches Document AI.
+  const fetchImpl = input.fetchImpl
   try {
-    response = await input.fetchImpl(input.endpoint, {
+    response = await fetchImpl(input.endpoint, {
       method: 'POST',
       headers: { authorization: `Bearer ${input.accessToken}`, 'content-type': 'application/json' },
       body: JSON.stringify({ rawDocument: { content: toBase64(input.bytes), mimeType: input.mimeType }, skipHumanReview: true }),

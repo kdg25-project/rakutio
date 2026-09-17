@@ -11,6 +11,7 @@ import {
   mapExpenseDocument,
   validateDocumentAiConfig,
   type DocumentAiConfig,
+  type FetchLike,
 } from './receipt'
 
 let privateKeyPem = ''
@@ -91,6 +92,22 @@ describe('Document AI receipt adapter', () => {
     expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(signal)
     expect(fetchMock.mock.calls[1]?.[1]?.signal).toBe(signal)
     expect(fetchMock.mock.calls[1]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+  })
+
+  it('calls the Document AI fetch implementation without binding it to request state', async () => {
+    const calls: string[] = []
+    const receiverSensitiveFetch = (async function (this: unknown, input: RequestInfo | URL) {
+      if (this !== undefined) throw new TypeError('Illegal invocation')
+      calls.push(String(input))
+      if (String(input) === 'https://oauth2.googleapis.com/token') return new Response(JSON.stringify({ access_token: 'access-token' }))
+      return new Response(JSON.stringify({ document: { entities: [] } }))
+    }) as FetchLike
+
+    await expect(extractReceiptWithDocumentAi(png(), config(), receiverSensitiveFetch)).resolves.toMatchObject({ total: null })
+    expect(calls).toEqual([
+      'https://oauth2.googleapis.com/token',
+      'https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process',
+    ])
   })
 
   it('builds the documented regional and US global-fallback processor endpoints', () => {
