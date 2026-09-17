@@ -138,6 +138,9 @@ describe('recurring screen navigation', () => {
     expect(component).toContain('onBack, onChanged, cacheScope')
     expect(component).toContain('aria-label="新規登録に戻る"')
     expect(styles).toContain('.finance-back-button')
+    expect(styles).toContain('height:44px')
+    expect(styles).toContain('width:44px')
+    expect(styles).toContain('.finance-back-button .finance-svg-icon{height:22px;width:13px}')
   })
 })
 
