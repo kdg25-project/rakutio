@@ -311,8 +311,16 @@ function entityMoney(entity: DocumentAiEntity | undefined, allowTextFallback = f
   if (!allowTextFallback) return { amount: null, currency: null }
 
   const text = entityText(entity)
-  const normalizedNumber = text?.replaceAll('０', '0').replaceAll('１', '1').replaceAll('２', '2').replaceAll('３', '3').replaceAll('４', '4').replaceAll('５', '5').replaceAll('６', '6').replaceAll('７', '7').replaceAll('８', '8').replaceAll('９', '9').replaceAll(',', '').replaceAll('，', '').match(/\d+(?:\.\d+)?/)?.[0]
-  const parsed = normalizedNumber ? Number(normalizedNumber) : NaN
+  const normalized = text?.replaceAll('０', '0').replaceAll('１', '1').replaceAll('２', '2').replaceAll('３', '3').replaceAll('４', '4').replaceAll('５', '5').replaceAll('６', '6').replaceAll('７', '7').replaceAll('８', '8').replaceAll('９', '9').replaceAll('，', ',')
+  // A line item can contain both a quantity and a price (for example
+  // `1 x ¥1,100`). Prefer the value immediately following a currency mark;
+  // otherwise use the final number, which is how the Expense Parser renders
+  // its text-only line-item amount in practice. This fallback is deliberately
+  // used only for a property already identified as a line-item price below.
+  const currencyNumber = normalized?.match(/[¥￥$€£]\s*([\d][\d,]*(?:\.\d+)?)/)?.[1]
+  const numbers = normalized?.match(/\d[\d,]*(?:\.\d+)?/g)
+  const normalizedNumber = currencyNumber ?? numbers?.at(-1)
+  const parsed = normalizedNumber ? Number(normalizedNumber.replaceAll(',', '')) : NaN
   return {
     amount: Number.isFinite(parsed) && parsed >= 0 && parsed <= Number.MAX_SAFE_INTEGER ? parsed : null,
     currency: null,
@@ -341,8 +349,70 @@ function firstEntityOfTypes(entities: DocumentAiEntity[], types: readonly string
   return entities.find((entity) => typeof entity.type === 'string' && types.includes(entity.type))
 }
 
-function propertyBySuffix(entity: DocumentAiEntity, suffix: string) {
-  return entity.properties?.find((property) => typeof property.type === 'string' && (property.type === suffix || property.type.endsWith(`/${suffix}`)))
+type NestedProperty = { entity: DocumentAiEntity; depth: number; order: number }
+
+/**
+ * Expense Parser normally puts `line_item/amount` directly in a line item's
+ * properties. Some processor versions wrap it in another property group
+ * instead (for example `line_item/line_item/amount`). Search only within that
+ * line item so a receipt-level total can never become an item price.
+ */
+function nestedProperties(entity: DocumentAiEntity) {
+  const found: NestedProperty[] = []
+  const seen = new Set<object>()
+  let order = 0
+
+  const visit = (properties: unknown, depth: number) => {
+    if (!Array.isArray(properties)) return
+    for (const property of properties) {
+      if (!property || typeof property !== 'object' || seen.has(property)) continue
+      seen.add(property)
+      const value = property as DocumentAiEntity
+      found.push({ entity: value, depth, order: order++ })
+      visit(value.properties, depth + 1)
+    }
+  }
+
+  visit(entity.properties, 1)
+  return found
+}
+
+function propertyType(entity: DocumentAiEntity) {
+  return typeof entity.type === 'string' ? entity.type.trim().toLowerCase() : ''
+}
+
+function propertyHasSuffix(entity: DocumentAiEntity, suffix: string) {
+  const type = propertyType(entity)
+  return type === suffix || type.endsWith(`/${suffix}`)
+}
+
+function firstNestedPropertyBySuffix(entity: DocumentAiEntity, suffix: string) {
+  return nestedProperties(entity)
+    .filter((property) => propertyHasSuffix(property.entity, suffix) && entityText(property.entity))
+    .sort((left, right) => left.depth - right.depth || left.order - right.order)[0]?.entity
+}
+
+function lineItemAmountRank(entity: DocumentAiEntity) {
+  const type = propertyType(entity)
+  if (!type) return null
+  const part = type.split('/').at(-1)
+  if (part === 'amount') return 0
+  if (part === 'total_amount' || part === 'total_price' || part === 'line_total' || part === 'extended_price') return 1
+  if (part === 'price' || part === 'unit_price' || part === 'item_price') return 2
+  return null
+}
+
+function lineItemAmount(entity: DocumentAiEntity) {
+  const candidates = nestedProperties(entity)
+    .map((property) => ({ ...property, rank: lineItemAmountRank(property.entity) }))
+    .filter((property): property is NestedProperty & { rank: number } => property.rank !== null)
+    .sort((left, right) => left.rank - right.rank || left.depth - right.depth || left.order - right.order)
+
+  for (const candidate of candidates) {
+    const value = entityMoney(candidate.entity, true)
+    if (value.amount !== null) return value
+  }
+  return { amount: null, currency: null }
 }
 
 export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExtraction {
@@ -355,9 +425,9 @@ export function mapExpenseDocument(document: { entities?: unknown }): ReceiptExt
   // This is OCR data only; unknown values deliberately remain unset.
   const paymentMethod = entityText(firstEntityOfTypes(entities, ['payment_method', 'payment_type', 'tender_type']))
   const items = entities.filter((entity) => entity.type === 'line_item').flatMap((entity) => {
-    const name = entityText(propertyBySuffix(entity, 'description'))
+    const name = entityText(firstNestedPropertyBySuffix(entity, 'description'))
     if (!name) return []
-    return [{ name, quantity: null, amount: entityMoney(propertyBySuffix(entity, 'amount'), true).amount }]
+    return [{ name, quantity: null, amount: lineItemAmount(entity).amount }]
   })
   return receiptSchema.parse({
     merchant: entityText(firstEntity(entities, 'supplier_name')),

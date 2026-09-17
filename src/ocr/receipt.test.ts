@@ -89,6 +89,40 @@ describe('Document AI receipt adapter', () => {
     }).items[0]?.amount).toBe(600)
   })
 
+  it('maps nested Expense Parser line-item amount and price properties without using receipt totals', () => {
+    const receipt = mapExpenseDocument({
+      entities: [
+        { type: 'total_amount', normalizedValue: { moneyValue: { units: '2910', nanos: 0, currencyCode: 'JPY' } } },
+        { type: 'line_item', properties: [
+          { type: 'line_item/description', mentionText: 'パンフ オデュッセイア' },
+          { type: 'line_item/details', properties: [
+            { type: 'line_item/details/amount', normalizedValue: { moneyValue: { units: '1100', nanos: 0, currencyCode: 'JPY' } } },
+          ] },
+        ] },
+        { type: 'line_item', properties: [
+          { type: 'line_item/description', mentionText: 'キーホルダー' },
+          { type: 'line_item/pricing', properties: [
+            { type: 'line_item/pricing/price', mentionText: '1 x ￥1,210' },
+            { type: 'line_item/pricing/tax_amount', mentionText: '110' },
+          ] },
+        ] },
+        { type: 'line_item', properties: [
+          { type: 'line_item/description', mentionText: 'メタリックCF' },
+          { type: 'line_item/amount', properties: [
+            { type: 'line_item/amount/amount', normalizedValue: { moneyValue: { units: '600', nanos: 0, currencyCode: 'JPY' } } },
+          ] },
+        ] },
+      ],
+    })
+
+    expect(receipt.total).toBe(2910)
+    expect(receipt.items).toEqual([
+      { name: 'パンフ オデュッセイア', quantity: null, amount: 1100 },
+      { name: 'キーホルダー', quantity: null, amount: 1210 },
+      { name: 'メタリックCF', quantity: null, amount: 600 },
+    ])
+  })
+
   it('does not treat an arbitrary number in a total mention as the total', () => {
     expect(mapExpenseDocument({
       entities: [{ type: 'total_amount', mentionText: '3点 ￥2,910' }],
