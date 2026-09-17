@@ -4,7 +4,8 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { LedgerCategory, LedgerSummary, LedgerTransaction } from '../server/ledger/types'
-import { appendReceiptFiles, dismissOverlayPage, hasCapturedReceiptPages, homeAssetValues, homeCategorySlots, HomeScreen, incomeTransactionItems, monthLabel, monthRangeLabel, pageAfterTransactionDelete, receiptCategoryForExtraction, receiptCategoryForText, receiptItemCategoryId, receiptPageAfterAdd, receiptPageAfterRemove, receiptPageStatusText, receiptRetryUrl, receiptUploadFormData, ScreenTitle, summaryForMonth, transactionsForMonth } from './ledger-app'
+import { appendReceiptFiles, dismissOverlayPage, hasCapturedReceiptPages, homeAssetValues, homeCategorySlots, HomeScreen, incomeTransactionItems, monthLabel, monthRangeLabel, pageAfterTransactionDelete, receiptCategoryForExtraction, receiptCategoryForText, receiptDraftItems, receiptItemCategoryId, receiptItemsWithAuthoritativeTotal, receiptPageAfterAdd, receiptPageAfterRemove, receiptPageStatusText, receiptRetryUrl, receiptUploadFormData, ScreenTitle, summaryForMonth, transactionsForMonth } from './ledger-app'
+import { calculateTransaction } from '../domain/money'
 
 const summary = (month: string): LedgerSummary => ({
   month,
@@ -165,6 +166,35 @@ describe('receipt review pages', () => {
     expect(receiptItemCategoryId(receiptCategories, '判別できない店舗', '名称不明')).toBe('other')
   })
 
+  it('uses the OCR total for registration when individual item prices are unavailable', () => {
+    const extraction = { merchant: 'TOHO CINEMAS', purchasedAt: null, total: 2910, tax: null, currency: 'JPY', items: [
+      { name: 'パンフレット', quantity: null, amount: null },
+      { name: 'キーホルダー', quantity: null, amount: null },
+    ] }
+    const draft = receiptDraftItems(extraction, receiptCategories)
+    const prepared = receiptItemsWithAuthoritativeTotal(draft, extraction.total, 'fun')
+
+    expect(draft.map((item) => item.originalAmount)).toEqual([0, 0])
+    expect(prepared.error).toBeUndefined()
+    expect(prepared.items.at(-1)).toMatchObject({ name: '未配分（レシート合計）', originalAmount: 2910, categoryId: 'fun' })
+    expect(calculateTransaction({ items: prepared.items, receiptDiscountAmount: 0, pointUsedAmount: 0, giftCertificateUsedAmount: 0 }).totals).toMatchObject({ grossAmount: 2910, cashPaidAmount: 2910 })
+  })
+
+  it('keeps line prices when they fit under the OCR total and makes only the difference unallocated', () => {
+    const prepared = receiptItemsWithAuthoritativeTotal([{ name: '飲み物', originalAmount: 280, discountAmount: 30, categoryId: 'food' }], 500, 'food')
+    expect(prepared.items).toEqual([
+      { name: '飲み物', originalAmount: 280, discountAmount: 0, categoryId: 'food' },
+      { name: '未配分（レシート合計）', originalAmount: 220, discountAmount: 0, categoryId: 'food' },
+    ])
+    expect(calculateTransaction({ items: prepared.items, receiptDiscountAmount: 0, pointUsedAmount: 0, giftCertificateUsedAmount: 0 }).totals.cashPaidAmount).toBe(500)
+  })
+
+  it('does not let conflicting OCR item prices override the printed total', () => {
+    const extraction = { merchant: '店舗', purchasedAt: null, total: 194, tax: null, currency: 'JPY', items: [{ name: '誤読した商品', quantity: 1, amount: 280 }] }
+    expect(receiptDraftItems(extraction, receiptCategories)).toMatchObject([{ originalAmount: 0 }])
+    expect(receiptItemsWithAuthoritativeTotal([{ name: '手入力', originalAmount: 195, discountAmount: 0, categoryId: 'food' }], 194, 'food').error).toBe('各商品の金額がレシートの合計金額を超えています。')
+  })
+
   it('uses a validated Gemini category before the local fallback and shows its representative category', () => {
     const extraction = { merchant: 'TOHO CINEMAS', purchasedAt: null, total: 300, tax: null, currency: 'JPY', items: [
       { name: 'パンフレット', quantity: 1, amount: 300, categoryId: 'food' },
@@ -221,6 +251,9 @@ describe('receipt review pages', () => {
     expect(ledgerAppSource).toContain("{resultCategory?.name ?? '未設定'}")
     expect(ledgerAppSource).toContain("{result.extraction.paymentMethod ?? '未設定'}")
     expect(ledgerAppSource).toContain("item.amount == null ? '未取得' : yen(item.amount)")
+    expect(ledgerAppSource).toContain('各商品の金額は任意で、レシートの合計金額を正として登録します。')
+    expect(ledgerAppSource).toContain('合計金額（レシートOCR）')
+    expect(ledgerAppSource).toContain('!hasAuthoritativeReceiptTotal && <input aria-label={`値引き ${index + 1}`}')
   })
 
   it('does not pretend that unobservable server-side OCR stages are complete while waiting for the response', () => {
