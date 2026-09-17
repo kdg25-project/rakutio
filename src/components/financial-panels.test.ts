@@ -95,7 +95,7 @@ describe('bank settings account grouping', () => {
     expect(component).toContain('BankAccountDetailScreen')
   })
 
-  it('keeps the bank list row limited to its Figma fields and uses the truthful compact D1 notice', async () => {
+  it('keeps the bank list row limited to its Figma fields and uses a compact security notice', async () => {
     const component = await readFile(resolve(process.cwd(), 'src/components/financial-panels.tsx'), 'utf8')
     const bankList = component.slice(component.indexOf('bankAccounts.map'), component.indexOf('</ul>', component.indexOf('bankAccounts.map')))
 
@@ -104,7 +104,8 @@ describe('bank settings account grouping', () => {
     expect(bankList).toContain('<strong>{yen(account.balanceAmount)}</strong>')
     expect(bankList).toContain('<ChevronIcon />')
     expect(bankList).not.toMatch(/残高を調整|>編集</)
-    expect(component).toContain('Cloudflare D1 に保存されます。')
+    expect(component).toContain('登録した銀行情報は、安全に保存されます。')
+    expect(component).not.toContain('Cloudflare D1')
     expect(component).not.toContain('外部に送信されることはありません')
   })
 })

@@ -149,7 +149,7 @@ export function ReceiptCamera({ onCapture, onCancel, onFallbackFiles }: ReceiptC
     </div>
     <p className="receipt-camera-live__message" role="status">{message}</p>
     <div className="receipt-camera-live__controls">
-      <label className="receipt-camera-live__utility"><img src="/icons/category-other.svg" alt="" /><span>写真を選択</span><input type="file" accept={receiptFileAccept} capture="environment" multiple onChange={chooseFiles} /></label>
+      <label className="receipt-camera-live__utility"><img src="/icons/category-other.svg" alt="" /><span>ライブラリ</span><input type="file" accept={receiptFileAccept} multiple onChange={chooseFiles} /></label>
       {!fallback && <button className="receipt-camera-live__shutter" type="button" onClick={() => void capture()} disabled={state !== 'ready' || capturing} aria-label="撮影する"><span /></button>}
       {fallback ? <button type="button" className="receipt-camera-live__retry" onClick={() => void startCamera(facingMode)}>カメラを再試行</button> : <button className="receipt-camera-live__utility" type="button" onClick={() => { const next = facingMode === 'environment' ? 'user' : 'environment'; setFacingMode(next) }} disabled={cameraCount < 2} aria-label="前後のカメラを切り替え"><span>{cameraCount >= 2 ? 'カメラを切替' : '背面カメラ'}</span></button>}
     </div>

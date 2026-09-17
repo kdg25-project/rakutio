@@ -14,6 +14,12 @@ describe('receipt camera helpers', () => {
     expect(cameraErrorMessage(new DOMException('none', 'NotFoundError'))).toContain('見つかりません')
   })
 
+  it('keeps the fallback picker in the photo library instead of opening a second native camera sheet', async () => {
+    const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('./receipt-camera.tsx', import.meta.url), 'utf8'))
+    expect(source).toContain('<span>ライブラリ</span><input type="file" accept={receiptFileAccept} multiple')
+    expect(source).not.toContain('capture="environment"')
+  })
+
   it('stops every media track on cancellation and page cleanup', () => {
     const first = { stop: vi.fn() } as unknown as MediaStreamTrack
     const second = { stop: vi.fn() } as unknown as MediaStreamTrack

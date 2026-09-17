@@ -234,8 +234,8 @@ function BankAccountRegistrationScreen({ busy, onBack, onSubmit }: { busy: boole
       {formError && <p className="finance-form-error">{formError}</p>}
       <label>銀行名<input value={name} maxLength={80} placeholder="例）なんちゃら銀行" onChange={(event) => setName(event.target.value)} /></label>
       <label>種類<select value={accountKind} onChange={(event) => setAccountKind(event.target.value as 'ordinary' | 'checking' | 'time')}><option value="ordinary">普通預金</option><option value="checking">当座預金</option><option value="time">定期預金</option></select></label>
-      <label>メモ（任意）<textarea value={memo} maxLength={500} placeholder="めもめも" onChange={(event) => setMemo(event.target.value)} /></label>
-      <p className="finance-bank-security"><LockIcon /><span>登録した銀行情報は、あなたの家計簿データとして暗号化して Cloudflare D1 に保存されます。</span></p>
+      <label>メモ（任意）<textarea value={memo} maxLength={500} placeholder="メモを入力" onChange={(event) => setMemo(event.target.value)} /></label>
+      <p className="finance-bank-security"><LockIcon /><span>登録した銀行情報は、安全に保存されます。</span></p>
       <button type="submit" className="finance-bank-add" disabled={busy}>{busy ? '追加中…' : '銀行口座を追加'}</button>
     </form>
   </section>

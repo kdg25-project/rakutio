@@ -4,9 +4,11 @@ import { drizzle } from 'drizzle-orm/d1'
 import { env } from 'cloudflare:workers'
 
 import { authSchema } from '../db/auth-schema'
+import { trustedOriginsForAuthBaseUrl } from './auth-origin'
 
 export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
+  trustedOrigins: trustedOriginsForAuthBaseUrl(env.BETTER_AUTH_URL),
   secret: env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(drizzle(env.DB, { schema: authSchema }), {
     provider: 'sqlite',
