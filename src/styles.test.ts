@@ -66,6 +66,8 @@ describe('mobile-frame layout', () => {
     expect(styles).toContain('.app-receipt-screen .receipt-preview img { display: block; height: 100%; max-height: none; max-width: none; object-fit: contain; width: 100%; }')
     expect(styles).toContain('.receipt-review-feedback { display: grid; flex: 0 0 auto; gap: 12px; }')
     expect(styles).toContain(".app-receipt-screen > .receipt-flow[data-phase='review'] .entry-fixed-action { align-self: stretch; flex: 0 0 auto; margin-top: auto; min-height: 52px; position: static; }")
+    expect(styles).toContain(".app-receipt-screen > .receipt-flow[data-phase='result'] { display: flex; flex-direction: column; gap: 18px; min-height: 100%; padding-bottom: calc(82px + env(safe-area-inset-bottom)); touch-action: pan-y; -webkit-overflow-scrolling: touch; }")
+    expect(styles).toContain(".app-receipt-screen > .receipt-flow[data-phase='result'] .entry-fixed-action { flex: 0 0 auto; margin-top: auto; }")
     expect(styles).toContain('.receipt-analysis-image { align-items: center; background: #f0f2ed; border-radius: 8px; display: flex;')
     expect(styles).toContain('.receipt-analysis-image img { display: block; height: 100%; object-fit: contain; width: 100%; }')
     expect(styles).not.toContain('.receipt-analysis-image { background: #b9825d;')
