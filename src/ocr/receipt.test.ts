@@ -71,6 +71,15 @@ describe('Document AI receipt adapter', () => {
     await expect(getServiceAccountAccessToken({ ...config(), serviceAccountPrivateKey: 'aW52YWxpZC1wa2NzOA==' }, vi.fn())).rejects.toThrow(OcrConfigurationError)
   })
 
+  it('classifies an OAuth transport failure without exposing the token endpoint', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('getaddrinfo ENOTFOUND oauth2.googleapis.com'))
+
+    await expect(getServiceAccountAccessToken(config(), fetchMock)).rejects.toMatchObject({
+      code: 'DOCUMENT_AI_AUTH_NETWORK_ERROR',
+      message: expect.not.stringContaining('oauth2.googleapis.com'),
+    })
+  })
+
   it('uses one timeout signal for OAuth and Document AI processing', async () => {
     const signal = new AbortController().signal
     const fetchMock = vi.fn()
@@ -81,6 +90,17 @@ describe('Document AI receipt adapter', () => {
     expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(signal)
     expect(fetchMock.mock.calls[1]?.[1]?.signal).toBe(signal)
     expect(fetchMock.mock.calls[1]?.[0]).toBe('https://us-documentai.googleapis.com/v1/projects/receipt-project/locations/us/processors/processor-123:process')
+  })
+
+  it('distinguishes a Document AI endpoint transport failure without exposing endpoint details', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'access-token' })))
+      .mockRejectedValueOnce(new TypeError('getaddrinfo ENOTFOUND us-documentai.googleapis.com for receipt-project'))
+
+    await expect(extractReceiptWithDocumentAi(png(), config(), fetchMock)).rejects.toMatchObject({
+      code: 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE',
+      message: expect.not.stringContaining('us-documentai.googleapis.com'),
+    })
   })
 
   it('retries a missing configured processor version once through the default processor endpoint', async () => {

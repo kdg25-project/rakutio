@@ -33,6 +33,9 @@ export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promis
 
 export type DocumentAiErrorCode =
   | 'DOCUMENT_AI_AUTHENTICATION_FAILED'
+  | 'DOCUMENT_AI_AUTH_NETWORK_ERROR'
+  | 'DOCUMENT_AI_AUTH_TIMEOUT'
+  | 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE'
   | 'DOCUMENT_AI_INVALID_ARGUMENT'
   | 'DOCUMENT_AI_INVALID_RESPONSE'
   | 'DOCUMENT_AI_NETWORK_ERROR'
@@ -152,10 +155,20 @@ async function documentAiErrorFromResponse(response: Response) {
   return documentAiErrorForStatus(response.status, providerError.status, providerError.code)
 }
 
-function documentAiTransportError(error: unknown, signal: AbortSignal) {
+type DocumentAiRequestStage = 'authentication' | 'processing'
+
+function documentAiTransportError(error: unknown, signal: AbortSignal, stage: DocumentAiRequestStage) {
   const errorName = error instanceof Error ? error.name : ''
-  if (signal.aborted || errorName === 'AbortError' || errorName === 'TimeoutError') return new DocumentAiRequestError('読み取りがタイムアウトしました。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_TIMEOUT')
-  return new DocumentAiRequestError('読み取りサービスに接続できませんでした。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_NETWORK_ERROR')
+  if (signal.aborted || errorName === 'AbortError' || errorName === 'TimeoutError') {
+    if (stage === 'authentication') return new DocumentAiRequestError('読み取りサービスの認証がタイムアウトしました。時間を置いてから再試行してください。', 'DOCUMENT_AI_AUTH_TIMEOUT')
+    return new DocumentAiRequestError('読み取りがタイムアウトしました。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_TIMEOUT')
+  }
+  if (stage === 'authentication') return new DocumentAiRequestError('読み取りサービスの認証先に接続できませんでした。通信状況を確認してから再試行してください。', 'DOCUMENT_AI_AUTH_NETWORK_ERROR')
+  // A processor ID is part of the path, so an invalid ID is returned as a
+  // typed 404 above. A fetch rejection here means the regional API endpoint
+  // itself could not be reached (for example DNS/egress trouble), without
+  // exposing the URL or the underlying provider error to the client.
+  return new DocumentAiRequestError('読み取りサービスの接続先に到達できませんでした。管理者に Document AI のリージョン設定とサービスの接続状況を確認してもらってください。', 'DOCUMENT_AI_ENDPOINT_UNAVAILABLE')
 }
 
 function hasValidSignature(type: string, bytes: Uint8Array) {
@@ -208,6 +221,7 @@ export function validateDocumentAiConfig(config: Partial<DocumentAiConfig>): Doc
 }
 
 export async function getServiceAccountAccessToken(config: DocumentAiConfig, fetchImpl: FetchLike, now = Date.now(), signal?: AbortSignal) {
+  const requestSignal = signal ?? AbortSignal.timeout(20_000)
   const header = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
   const payload = base64UrlEncode(JSON.stringify({
     iss: config.serviceAccountEmail,
@@ -230,12 +244,17 @@ export async function getServiceAccountAccessToken(config: DocumentAiConfig, fet
   } catch {
     throw new OcrConfigurationError('Document AI のサービスアカウント鍵が不正です。')
   }
-  const response = await fetchImpl(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${signingInput}.${base64UrlEncode(signature)}` }),
-    signal,
-  })
+  let response: Response
+  try {
+    response = await fetchImpl(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${signingInput}.${base64UrlEncode(signature)}` }),
+      signal: requestSignal,
+    })
+  } catch (error) {
+    throw documentAiTransportError(error, requestSignal, 'authentication')
+  }
   if (!response.ok) throw new DocumentAiRequestError('Document AI の認証に失敗しました。管理者に認証設定を確認してもらってください。', 'DOCUMENT_AI_AUTHENTICATION_FAILED', response.status)
   const result = await response.json() as { access_token?: unknown }
   if (typeof result.access_token !== 'string' || !result.access_token) throw new DocumentAiRequestError('Document AI の認証結果が不正です。')
@@ -335,7 +354,7 @@ async function processReceiptWithDocumentAi(input: {
       signal: input.signal,
     })
   } catch (error) {
-    throw documentAiTransportError(error, input.signal)
+    throw documentAiTransportError(error, input.signal, 'processing')
   }
   if (!response.ok) throw await documentAiErrorFromResponse(response)
 
